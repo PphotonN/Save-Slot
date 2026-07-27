@@ -9,7 +9,9 @@ import {
   IndexedDbCollectionRepository,
   MemoryCollectionRepository,
   createDefaultList,
+  createUserList,
   ensureDefaultList,
+  normalizeCollectionMembership,
   type CollectionRepository,
 } from './index';
 
@@ -17,7 +19,9 @@ export {
   IndexedDbCollectionRepository,
   MemoryCollectionRepository,
   createDefaultList,
+  createUserList,
   ensureDefaultList,
+  normalizeCollectionMembership,
 };
 export type { CollectionRepository };
 
@@ -135,6 +139,18 @@ class ProjectFileMirroredRepository implements CollectionRepository {
   async putList(list: UserList): Promise<void> {
     await this.ready;
     await this.base.putList(list);
+    this.scheduleProjectFileSave();
+  }
+
+  async deleteList(id: string): Promise<void> {
+    await this.ready;
+    await this.base.deleteList(id);
+    this.scheduleProjectFileSave();
+  }
+
+  async setEntryLists(entryId: string, listIds: string[]): Promise<void> {
+    await this.ready;
+    await this.base.setEntryLists(entryId, listIds);
     this.scheduleProjectFileSave();
   }
 
