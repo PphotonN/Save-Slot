@@ -41,7 +41,9 @@ describe('provider search behavior', () => {
     expect(first.total).toBe(fixtureSearchResults.length);
     expect(first.nextCursor).toBe('2');
 
-    const second = await provider.search({ query: '', limit: 2, cursor: first.nextCursor });
+    const cursor = first.nextCursor;
+    expect(cursor).toBeDefined();
+    const second = await provider.search({ query: '', limit: 2, cursor: cursor! });
     expect(second.total).toBe(fixtureSearchResults.length);
     expect(second.items[0]?.game.id).not.toBe(first.items[0]?.game.id);
     expect(
