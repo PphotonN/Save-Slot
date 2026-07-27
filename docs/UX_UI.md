@@ -1,8 +1,13 @@
 # UX and Visual Specification
 
-## Layout direction
+## Core layout
 
-Save Slot v1 uses a left information rail and a right working area on desktop. The layout collapses into a mobile-first stacked interface on narrow screens.
+Save Slot uses a permanent left information rail and a right working area on desktop. On narrow screens the same functions collapse into a stacked mobile interface with bottom navigation.
+
+The interface is designed around two primary tasks:
+
+1. find a game or a concrete platform release;
+2. manage the user's own collection.
 
 ## Desktop layout
 
@@ -20,7 +25,7 @@ Save Slot v1 uses a left information rail and a right working area on desktop. T
 
 ### Left rail
 
-Width target: 300–360 px on large screens.
+Target width: 300–360 px on large screens.
 
 When no game is selected:
 
@@ -28,42 +33,58 @@ When no game is selected:
 - primary navigation;
 - no placeholder fact cards;
 - no descriptive filler panels;
-- subtle source/online status only when relevant.
+- no empty information tiles.
 
-When a game is selected:
+When a release is selected:
 
-- selected release cartridge inserted into the slot;
+- its cartridge is inserted into the slot;
 - game title;
 - year;
-- selected platform;
-- sourced player ratings;
+- exact platform;
+- sourced player rating;
 - personal rating;
 - short official or editorial description;
-- add/update collection action;
-- expandable screenshots and release details.
+- collection action;
+- screenshots when available.
 
-The left rail remains visible during catalogue scrolling.
+The rail remains visible while the catalogue scrolls.
 
-### Right workspace header
+### Right workspace
+
+The upper area contains:
 
 - search field;
-- random selection action;
-- view mode;
+- random discovery action;
+- filter drawer;
+- platform selection;
 - sorting;
-- filter button opening a popover or drawer;
-- active-filter chips;
-- result count and loading status.
+- result count;
+- loading and provider status.
 
-Filters must not consume a permanent wide sidebar.
+Filters must not consume a second permanent sidebar.
 
-### Results area
+## Result flow
 
-- cards are stable after insertion into the DOM;
-- new cards appear progressively;
-- existing cards do not flash or remount when ratings or media arrive;
+Catalogue cards and cartridge shelves always build **from left to right**.
+
+Rules:
+
+- the first accepted item occupies the leftmost free position;
+- following items append to the right;
+- after the row is full, the next row starts again at the left edge;
+- DOM order and visual order are identical;
+- the stagger animation follows the same left-to-right sequence;
 - sorting changes order only;
 - filtering changes visibility only;
-- loading new media never depends on a sort-control event.
+- media loading never depends on changing the sort control;
+- existing cards do not flash, remount or jump when new cards arrive.
+
+Animation:
+
+- short opacity and translation from the left;
+- slight stagger between newly accepted cards;
+- no repeated animation for already visible cards;
+- reduced-motion mode removes movement.
 
 ## Mobile layout
 
@@ -80,71 +101,56 @@ Filters must not consume a permanent wide sidebar.
 └──────────────────────────┘
 ```
 
-### Mobile navigation
-
 Bottom navigation:
 
 - Search;
 - Collection;
-- Lists;
+- Discovery;
 - Settings.
 
-The selected game opens as a bottom sheet or full-height details panel. The compact slot remains part of the visual identity but must not occupy excessive vertical space.
+Touch requirements:
 
-### Touch requirements
-
-- minimum comfortable touch targets;
+- comfortable touch targets;
 - no hover-only actions;
-- swipe is optional, never the only control;
-- filter drawer supports one-handed use;
+- swipe is optional and never the only control;
+- filter controls support one-handed use;
 - dialogs respect safe areas;
-- cartridge animation is shorter on mobile.
+- cartridge animation is shorter on mobile;
+- result rows still fill left to right.
 
 ## Search states
 
 ### Initial state
 
-Each new application session loads a varied discovery selection. It is not a hardcoded local catalogue.
+Every fresh application start loads a varied discovery selection. It is not a fixed local catalogue.
 
 The selection should:
 
-- span several platforms;
-- avoid repeating the previous session where practical;
-- include games with and without ratings;
-- include only cards with accepted cover art;
-- clearly indicate ongoing provider loading.
+- cover several platforms;
+- avoid immediate repetition where practical;
+- include only releases with accepted cover art;
+- show partial provider progress without clearing stable cards.
 
 ### Active search
 
-1. User submits or pauses typing.
-2. Search status appears without clearing existing cards immediately.
-3. First normalized candidates arrive.
-4. Accepted cards appear progressively from right to left.
+1. The user submits a query.
+2. Search status appears without requiring a sort interaction.
+3. Normalized candidates arrive.
+4. Accepted release cards append from left to right.
 5. Media and ratings update inside existing cards.
-6. Final provider warnings are summarized without replacing results.
+6. Provider warnings are summarized without replacing results.
 
 ### Empty and error states
 
 Differentiate:
 
 - no matching game;
-- all matches removed by filters;
-- provider temporarily unavailable;
+- matches removed by filters;
+- provider unavailable;
 - no verified box art;
-- offline mode;
-- rate limited.
-
-## Progressive card appearance
-
-Desktop insertion order is visually right-to-left within a row. The data order remains logical and accessible.
-
-Animation rules:
-
-- short opacity and translation animation;
-- slight stagger between newly accepted cards;
-- no reanimation of existing cards;
-- reduced-motion mode removes movement but preserves immediate appearance;
-- screen-reader order follows DOM order.
+- offline fallback;
+- rate limit;
+- project library file unavailable.
 
 ## Search card content
 
@@ -152,60 +158,42 @@ Default card:
 
 - release-specific box art;
 - title;
-- selected or primary platform;
+- platform;
 - release year;
-- concise rating summary;
-- save button.
+- concise player rating;
+- add/remove collection action.
 
-Avoid technical source annotations on every card. Source detail belongs in the game page or a compact tooltip.
+Do not overload every card with technical source annotations. Source details belong in the selected game view or a compact diagnostic panel.
 
-## Game detail content
+## Game details
 
-Required sections:
+Required information:
 
-1. Overview.
-2. Releases and platforms.
-3. Screenshots.
-4. Ratings.
-5. Collection record.
-6. Source information.
-
-### Overview
-
-- title and alternate localized title;
-- selected release;
+- title and localized title when available;
+- concrete release and platform;
 - year;
 - developer and publisher;
 - genres;
 - short description;
-- `Translate` action when needed.
+- translate action;
+- sourced ratings with vote count;
+- personal rating;
+- screenshots;
+- collection record.
 
-### Screenshots
+Screenshots:
 
-- horizontal swipe/scroll gallery;
+- horizontal scroll or swipe gallery;
 - platform labels when mixed;
 - thumbnail-first loading;
-- fullscreen viewer;
-- no screenshot used as an unlabeled cover.
-
-### Ratings
-
-Show separate tiles, for example:
-
-- IGDB community;
-- Steam users for PC;
-- other approved player sources;
-- personal rating.
-
-The interface includes vote counts and source names without overloading catalogue cards.
+- fullscreen viewer later;
+- never silently used as box art.
 
 ## Collection views
 
-### List
+### Compact list
 
-Dense table-like presentation for large libraries.
-
-Fields:
+Dense rows for large libraries:
 
 - title;
 - platform;
@@ -218,61 +206,80 @@ Fields:
 
 - thumbnail;
 - title and release;
-- progress;
+- progress/status;
 - rating;
 - quick actions;
 - note preview.
 
 ### Cartridge shelf
 
-- PS1-style 3D or pseudo-3D cartridges;
-- platform visual variants;
-- cover texture on the cartridge label;
+- PS1-style cartridges;
+- platform variants;
+- cover texture on the label;
 - grouping by platform or custom list;
-- readable title fallback for missing cover.
+- readable fallback when a cover is missing;
+- rows fill from left to right.
 
-View choice is saved per list.
+The chosen view is stored per list.
+
+## Collection persistence
+
+The local desktop application uses two coordinated stores:
+
+1. IndexedDB is the responsive browser working copy.
+2. `.save-slot-data/library.json` is the persistent project-folder copy.
+
+Requirements:
+
+- the project file is restored when the application starts;
+- every collection mutation is mirrored automatically;
+- writes are atomic;
+- the previous file is retained as `library.backup.json`;
+- the cache folder is excluded from Git;
+- manual JSON export/import remains available;
+- file-cache failure must not destroy the IndexedDB copy;
+- settings show whether the project file is connected and saved.
+
+Direct smartphone access to the desktop project folder is not assumed. Mobile synchronization will use a later explicit sync layer rather than exposing the local cache service publicly.
 
 ## PS1 visual system
-
-### Scope
 
 PS1 treatment applies to:
 
 - slot hardware;
 - cartridge geometry;
-- selected transitions;
+- insertion transitions;
 - optional background details.
 
-It does not reduce text readability or distort original artwork.
+It must not reduce text readability or distort original artwork.
 
-### Geometry and rendering
+Rendering direction:
 
 - low-poly cartridge and slot;
 - low-resolution textures;
 - nearest-neighbour filtering;
 - limited lighting precision;
-- optional vertex jitter/dither;
+- optional vertex jitter and dither;
 - restrained CRT overlay;
-- modern UI typography around the scene.
+- modern readable UI around the scene.
 
-### Box-art treatment
+### Box art
 
 Default: original artwork with preserved aspect ratio.
 
-Optional user setting:
+Optional display filters:
 
 - clean;
 - subtle PS1 dither;
-- CRT filter.
+- CRT.
 
-The filter is visual only and never modifies the cached original.
+Filters are visual only and never modify the cached original.
 
 ### Cartridge insertion
 
 The cartridge is a rigid body.
 
-Allowed animation properties:
+Allowed transforms:
 
 - translation;
 - rotation;
@@ -287,49 +294,47 @@ Forbidden:
 - shape morphing;
 - aspect-ratio changes.
 
-The insertion should be unmistakable:
+Insertion sequence:
 
 1. lift from the source card;
 2. travel toward the slot with depth;
 3. align above the slot;
 4. move vertically into place;
-5. short impact and light response;
+5. short impact response;
 6. show game information immediately.
 
-## Accessibility
-
-- full keyboard support;
-- visible focus states;
-- semantic headings and landmarks;
-- alt text for box art when informative;
-- reduced-motion setting;
-- sufficient contrast;
-- font scaling without layout failure;
-- screen-reader announcements for search progress and new results;
-- 3D scene has a functional non-canvas alternative.
-
-## Localization
+## Localization and translation
 
 Initial interface languages:
 
 - Ukrainian;
 - English.
 
-All interface strings use message keys. No user-facing strings are embedded directly in feature components.
-
-Description translation:
+Descriptions support:
 
 - visible source language;
 - translate-to-interface-language action;
 - original/translated toggle;
-- cached result;
-- clear machine-translation label.
+- cached translation;
+- machine-translation label.
+
+## Accessibility
+
+- keyboard support;
+- visible focus states;
+- semantic headings and landmarks;
+- useful cover alt text;
+- reduced motion;
+- sufficient contrast;
+- font scaling without layout failure;
+- screen-reader progress announcements;
+- non-WebGL fallback for the 3D scene.
 
 ## Performance targets
 
-- application shell usable quickly on a mid-range smartphone;
-- no Three.js bundle on routes that do not show the slot, when code splitting permits;
+- usable application shell on a mid-range smartphone;
 - card thumbnails lazy-loaded;
-- full screenshots on demand;
-- stable 60 fps target for short cartridge animation on supported devices;
-- automatically simplify 3D effects on low-power or reduced-motion devices.
+- full screenshots loaded on demand;
+- short cartridge animation targets 60 fps when supported;
+- effects simplify on low-power or reduced-motion devices;
+- collection file writes do not block card interaction.
