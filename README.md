@@ -20,27 +20,34 @@ Save Slot must make two tasks simple:
 
 The target catalogue covers PC, PlayStation, Xbox, Nintendo, Sega, handheld, retro and mobile releases. Each release should retain its platform, region, box art, screenshots, descriptions and clearly sourced player ratings.
 
-## Current alpha slice
+## Current alpha
 
-The branch now contains a working application foundation rather than only documentation:
+The branch contains a functional application foundation:
 
 - pnpm monorepo with strict TypeScript;
 - SvelteKit mobile-first PWA shell;
-- Cloudflare Worker API boundary with normalized routes;
+- Cloudflare Worker aggregation API;
 - canonical `Game → Release → CollectionEntry` domain model validated with Zod;
 - IndexedDB collection repository with memory fallback;
 - versioned JSON export and import;
 - random discovery on every application start;
 - search, platform filtering and sorting implemented as separate operations;
 - progressive right-to-left card reveal;
-- release-specific box art and ratings in representative fixture data;
 - desktop left-side slot and smartphone layout;
 - collection views: compact list, medium rows and cartridges;
 - rigid cartridge insertion animation that preserves cover aspect ratio;
 - Ukrainian and English localization foundation;
 - private CI for formatting, type checking, tests and builds.
 
-The catalogue is intentionally using representative fixture data during this phase. Production provider adapters for Wikidata, IGDB, Libretro, Steam and other approved sources are the next implementation step.
+### Active catalogue pipeline
+
+1. **Wikidata Action API** supplies real search results, localized titles/descriptions, platforms, genres, developers, publishers, release dates and external IDs.
+2. Platform labels are normalized into shared Save Slot IDs.
+3. **Libretro Named_Boxarts** verifies platform-specific retro/console covers.
+4. **Steam Store and Steam Reviews** enrich linked PC releases with vertical box art, official description, screenshots and player rating with vote count.
+5. Representative fixtures remain a deterministic offline/provider-failure fallback.
+
+IGDB, MobyGames and RAWG remain deferred until credentials, attribution and current terms are reviewed.
 
 ## Workspace
 
@@ -51,7 +58,7 @@ apps/
   mobile/       Capacitor wrapper, added after the PWA is stable
 packages/
   domain/       Entities, validation and business rules
-  providers/    Provider contracts, merging and search rules
+  providers/    Catalogue and media provider adapters
   storage/      IndexedDB and export/import
   ui/           Shared UI contracts and stable reveal behavior
   i18n/         Interface languages and translation contracts
@@ -67,14 +74,18 @@ Requirements:
 
 ```bash
 pnpm install
-pnpm dev
+cp apps/web/.env.example apps/web/.env
+cp apps/api/.dev.vars.example apps/api/.dev.vars
 ```
 
-Run the local aggregation Worker in another terminal:
+Run the Worker and web application in separate terminals:
 
 ```bash
 pnpm dev:api
+pnpm dev
 ```
+
+Without `VITE_SAVE_SLOT_API_URL`, the web app deliberately falls back to the local representative catalogue.
 
 Validation:
 
@@ -85,7 +96,7 @@ pnpm test
 pnpm build
 ```
 
-No API credentials should be placed in client-side variables. Copy `.env.example` only for local setup and store Worker secrets through the deployment platform when real providers are enabled.
+No API credentials may be placed in client-side variables. `VITE_SAVE_SLOT_API_URL` is only the public address of the aggregation API. Real provider credentials belong in Worker secrets or local `apps/api/.dev.vars` and must never be committed.
 
 ## Repository documentation
 
