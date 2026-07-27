@@ -12,6 +12,7 @@ export interface SearchRequest {
 export interface SearchPage {
   items: SearchResult[];
   nextCursor?: string;
+  total?: number;
   providers: ProviderStatus[];
 }
 
@@ -105,6 +106,7 @@ export class FixtureProvider implements ProviderAdapter {
     return {
       items,
       ...(nextCursor ? { nextCursor } : {}),
+      total: filtered.length,
       providers: [
         {
           id: this.id,
@@ -138,6 +140,7 @@ export async function searchWithFallback(
   const items = new Map<string, SearchResult>();
   const statuses: ProviderStatus[] = [];
   const cursors: string[] = [];
+  const totals: number[] = [];
 
   settled.forEach((result, index) => {
     const provider = providers[index];
@@ -161,6 +164,7 @@ export async function searchWithFallback(
       }
       statuses.push(...result.value.providers);
       if (result.value.nextCursor) cursors.push(result.value.nextCursor);
+      if (result.value.total != null) totals.push(result.value.total);
     } else {
       statuses.push({
         id: provider.id,
@@ -173,6 +177,7 @@ export async function searchWithFallback(
   return {
     items: [...items.values()],
     ...(cursors[0] ? { nextCursor: cursors[0] } : {}),
+    ...(totals.length ? { total: Math.max(...totals) } : {}),
     providers: statuses,
   };
 }
