@@ -54,7 +54,9 @@
     </div>
     <dl>
       <div><dt>ПОШУК</dt><dd>{duration(status.searchTtlSeconds)}</dd></div>
+      <div><dt>ПІДКАЗКИ</dt><dd>{status.suggestionTtlSeconds ? duration(status.suggestionTtlSeconds) : '—'}</dd></div>
       <div><dt>ДЕТАЛІ</dt><dd>{duration(status.detailTtlSeconds)}</dd></div>
+      <div><dt>ПУЛ ПОШУКУ</dt><dd>{status.searchPoolLimit ?? '—'} ІГОР</dd></div>
       <div><dt>CACHE API</dt><dd>{status.stats.cacheApiEnabled ? 'АКТИВНИЙ' : 'НЕДОСТУПНИЙ'}</dd></div>
       <div><dt>KV</dt><dd>{status.stats.kvEnabled ? 'АКТИВНИЙ' : 'НЕ НАЛАШТОВАНИЙ'}</dd></div>
     </dl>
@@ -101,7 +103,7 @@
   .metrics,
   dl {
     display: grid;
-    grid-template-columns: repeat(4, minmax(0, 1fr));
+    grid-template-columns: repeat(auto-fit, minmax(120px, 1fr));
     gap: 0.45rem;
     margin: 0;
   }
@@ -131,12 +133,5 @@
     overflow-wrap: anywhere;
     color: var(--muted-light);
     font-size: 0.76rem;
-  }
-
-  @media (max-width: 620px) {
-    .metrics,
-    dl {
-      grid-template-columns: repeat(2, minmax(0, 1fr));
-    }
   }
 </style>
