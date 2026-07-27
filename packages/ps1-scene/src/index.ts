@@ -40,6 +40,13 @@ export interface SlotSceneController {
   destroy(): void;
 }
 
+export interface CoverUvTransform {
+  repeatX: number;
+  repeatY: number;
+  offsetX: number;
+  offsetY: number;
+}
+
 const clamp01 = (value: number): number => Math.min(1, Math.max(0, value));
 const lerp = (start: number, end: number, amount: number): number =>
   start + (end - start) * clamp01(amount);
@@ -90,6 +97,46 @@ export function coverObjectFit(
   const width = targetWidth;
   const height = width / sourceRatio;
   return { width, height, offsetX: 0, offsetY: (targetHeight - height) / 2 };
+}
+
+export function coverUvTransform(
+  sourceWidth: number,
+  sourceHeight: number,
+  targetWidth: number,
+  targetHeight: number,
+): CoverUvTransform {
+  if (
+    !Number.isFinite(sourceWidth) ||
+    !Number.isFinite(sourceHeight) ||
+    !Number.isFinite(targetWidth) ||
+    !Number.isFinite(targetHeight) ||
+    sourceWidth <= 0 ||
+    sourceHeight <= 0 ||
+    targetWidth <= 0 ||
+    targetHeight <= 0
+  ) {
+    return { repeatX: 1, repeatY: 1, offsetX: 0, offsetY: 0 };
+  }
+
+  const sourceRatio = sourceWidth / sourceHeight;
+  const targetRatio = targetWidth / targetHeight;
+  if (sourceRatio > targetRatio) {
+    const repeatX = targetRatio / sourceRatio;
+    return {
+      repeatX,
+      repeatY: 1,
+      offsetX: (1 - repeatX) / 2,
+      offsetY: 0,
+    };
+  }
+
+  const repeatY = sourceRatio / targetRatio;
+  return {
+    repeatX: 1,
+    repeatY,
+    offsetX: 0,
+    offsetY: (1 - repeatY) / 2,
+  };
 }
 
 export const defaultSlotSceneState: SlotSceneState = {
