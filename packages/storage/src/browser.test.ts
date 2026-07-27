@@ -7,8 +7,8 @@ afterEach(() => {
   vi.unstubAllGlobals();
 });
 
-describe('project file mirrored repository', () => {
-  it('restores through the cache endpoint and mirrors collection changes', async () => {
+describe('browser collection repository', () => {
+  it('restores through the desktop cache endpoint and mirrors collection changes', async () => {
     vi.useFakeTimers();
     const dispatchEvent = vi.fn();
     const fetchMock = vi
@@ -49,5 +49,31 @@ describe('project file mirrored repository', () => {
     expect(body.version).toBe(1);
     expect(body.lists[0]?.id).toBe(list.id);
     expect(dispatchEvent).toHaveBeenCalled();
+  });
+
+  it('uses local-only storage on a native Capacitor platform', async () => {
+    const dispatchEvent = vi.fn();
+    const fetchMock = vi.fn<typeof fetch>();
+    vi.stubGlobal('window', {
+      dispatchEvent,
+      Capacitor: {
+        isNativePlatform: () => true,
+        getPlatform: () => 'android',
+      },
+    });
+    vi.stubGlobal('fetch', fetchMock);
+
+    const repository = createCollectionRepository();
+    const list = createDefaultList();
+    await repository.putList(list);
+    await Promise.resolve();
+
+    expect(fetchMock).not.toHaveBeenCalled();
+    expect((await repository.listLists())[0]?.id).toBe(list.id);
+    expect(dispatchEvent).toHaveBeenCalledWith(
+      expect.objectContaining({
+        type: 'save-slot-library-cache',
+      }),
+    );
   });
 });
