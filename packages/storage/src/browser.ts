@@ -22,6 +22,7 @@ export {
 export type { CollectionRepository };
 
 const PROJECT_LIBRARY_URL = 'http://127.0.0.1:8791';
+const FILE_WRITE_DELAY_MS = 120;
 
 function emitCacheStatus(status: 'ready' | 'saved' | 'unavailable' | 'error', message: string): void {
   if (typeof window === 'undefined') return;
@@ -35,6 +36,7 @@ function emitCacheStatus(status: 'ready' | 'saved' | 'unavailable' | 'error', me
 class ProjectFileMirroredRepository implements CollectionRepository {
   private readonly ready: Promise<void>;
   private writeQueue: Promise<void> = Promise.resolve();
+  private saveTimer: ReturnType<typeof setTimeout> | undefined;
 
   constructor(
     private readonly base: CollectionRepository,
@@ -47,7 +49,14 @@ class ProjectFileMirroredRepository implements CollectionRepository {
     try {
       const response = await fetch(`${this.baseUrl}/library`, { cache: 'no-store' });
       if (response.status === 404) {
-        emitCacheStatus('ready', 'Файл колекції буде створено після першої зміни.');
+        const existing = await this.base.exportData();
+        const hasLocalData =
+          existing.entries.length > 0 || existing.lists.length > 0 || existing.snapshots.length > 0;
+        if (hasLocalData) {
+          await this.enqueueWrite(existing);
+        } else {
+          emitCacheStatus('ready', 'Файл колекції буде створено після першої зміни.');
+        }
         return;
       }
       if (!response.ok) throw new Error(`Project library read failed with HTTP ${response.status}.`);
@@ -61,26 +70,44 @@ class ProjectFileMirroredRepository implements CollectionRepository {
     }
   }
 
-  private async saveToProjectFile(): Promise<void> {
-    const payload = await this.base.exportData();
+  private async writePayload(payload: CollectionExport): Promise<void> {
+    try {
+      const response = await fetch(`${this.baseUrl}/library`, {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(payload),
+      });
+      if (!response.ok) throw new Error(`Project library write failed with HTTP ${response.status}.`);
+      emitCacheStatus('saved', 'Колекцію збережено у .save-slot-data/library.json.');
+    } catch (error) {
+      const message = error instanceof Error ? error.message : String(error);
+      console.warn('[Save Slot] Could not mirror collection to project folder:', message);
+      emitCacheStatus('error', `Не вдалося записати файл колекції: ${message}`);
+    }
+  }
+
+  private async enqueueWrite(payload?: CollectionExport): Promise<void> {
+    const snapshot = payload ?? (await this.base.exportData());
     this.writeQueue = this.writeQueue
       .catch(() => undefined)
-      .then(async () => {
-        try {
-          const response = await fetch(`${this.baseUrl}/library`, {
-            method: 'PUT',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify(payload),
-          });
-          if (!response.ok) throw new Error(`Project library write failed with HTTP ${response.status}.`);
-          emitCacheStatus('saved', 'Колекцію збережено у .save-slot-data/library.json.');
-        } catch (error) {
-          const message = error instanceof Error ? error.message : String(error);
-          console.warn('[Save Slot] Could not mirror collection to project folder:', message);
-          emitCacheStatus('error', `Не вдалося записати файл колекції: ${message}`);
-        }
-      });
+      .then(() => this.writePayload(snapshot));
     await this.writeQueue;
+  }
+
+  private scheduleProjectFileSave(): void {
+    if (this.saveTimer) clearTimeout(this.saveTimer);
+    this.saveTimer = setTimeout(() => {
+      this.saveTimer = undefined;
+      void this.enqueueWrite();
+    }, FILE_WRITE_DELAY_MS);
+  }
+
+  private async flushProjectFileSave(): Promise<void> {
+    if (this.saveTimer) {
+      clearTimeout(this.saveTimer);
+      this.saveTimer = undefined;
+    }
+    await this.enqueueWrite();
   }
 
   async listEntries(): Promise<CollectionEntry[]> {
@@ -91,13 +118,13 @@ class ProjectFileMirroredRepository implements CollectionRepository {
   async putEntry(entry: CollectionEntry): Promise<void> {
     await this.ready;
     await this.base.putEntry(entry);
-    await this.saveToProjectFile();
+    this.scheduleProjectFileSave();
   }
 
   async deleteEntry(id: string): Promise<void> {
     await this.ready;
     await this.base.deleteEntry(id);
-    await this.saveToProjectFile();
+    this.scheduleProjectFileSave();
   }
 
   async listLists(): Promise<UserList[]> {
@@ -108,13 +135,13 @@ class ProjectFileMirroredRepository implements CollectionRepository {
   async putList(list: UserList): Promise<void> {
     await this.ready;
     await this.base.putList(list);
-    await this.saveToProjectFile();
+    this.scheduleProjectFileSave();
   }
 
   async putSnapshot(snapshot: ReleaseSnapshot): Promise<void> {
     await this.ready;
     await this.base.putSnapshot(snapshot);
-    await this.saveToProjectFile();
+    this.scheduleProjectFileSave();
   }
 
   async getSnapshot(releaseId: string): Promise<ReleaseSnapshot | undefined> {
@@ -130,13 +157,13 @@ class ProjectFileMirroredRepository implements CollectionRepository {
   async importData(payload: unknown): Promise<void> {
     await this.ready;
     await this.base.importData(collectionExportSchema.parse(payload));
-    await this.saveToProjectFile();
+    await this.flushProjectFileSave();
   }
 
   async clear(): Promise<void> {
     await this.ready;
     await this.base.clear();
-    await this.saveToProjectFile();
+    await this.flushProjectFileSave();
   }
 }
 
