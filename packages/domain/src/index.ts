@@ -1,5 +1,41 @@
 import { z } from 'zod';
 
+const MAX_IDENTIFIER_LENGTH = 2048;
+const MAX_SHORT_TEXT_LENGTH = 2048;
+const MAX_LONG_TEXT_LENGTH = 100_000;
+const MAX_COLLECTION_ITEMS = 100_000;
+
+const identifierSchema = z.string().min(1).max(MAX_IDENTIFIER_LENGTH);
+const shortTextSchema = z.string().min(1).max(MAX_SHORT_TEXT_LENGTH);
+const httpUrlSchema = z.url().refine(
+  (value) => {
+    try {
+      return ['http:', 'https:'].includes(new URL(value).protocol);
+    } catch {
+      return false;
+    }
+  },
+  { message: 'Only HTTP and HTTPS URLs are accepted.' },
+);
+
+function addDuplicateIssues(
+  values: string[],
+  path: (string | number)[],
+  context: z.RefinementCtx,
+): void {
+  const seen = new Set<string>();
+  for (const [index, value] of values.entries()) {
+    if (seen.has(value)) {
+      context.addIssue({
+        code: 'custom',
+        path: [...path, index],
+        message: `Duplicate identifier: ${value}`,
+      });
+    }
+    seen.add(value);
+  }
+}
+
 export const providerIdSchema = z.enum([
   'igdb',
   'wikidata',
@@ -16,8 +52,8 @@ export type ProviderId = z.infer<typeof providerIdSchema>;
 
 export const sourceRefSchema = z.object({
   provider: providerIdSchema,
-  id: z.string().min(1),
-  url: z.url().optional(),
+  id: identifierSchema,
+  url: httpUrlSchema.optional(),
   retrievedAt: z.iso.datetime().optional(),
 });
 export type SourceRef = z.infer<typeof sourceRefSchema>;
@@ -33,12 +69,12 @@ export const platformKindSchema = z.enum([
 export type PlatformKind = z.infer<typeof platformKindSchema>;
 
 export const platformSchema = z.object({
-  id: z.string().min(1),
-  name: z.string().min(1),
-  family: z.string().min(1),
+  id: identifierSchema,
+  name: shortTextSchema,
+  family: shortTextSchema,
   kind: platformKindSchema,
   generation: z.number().int().positive().optional(),
-  sourceRefs: z.array(sourceRefSchema).default([]),
+  sourceRefs: z.array(sourceRefSchema).max(128).default([]),
 });
 export type Platform = z.infer<typeof platformSchema>;
 
@@ -54,20 +90,20 @@ export type MediaKind = z.infer<typeof mediaKindSchema>;
 
 export const mediaAssetSchema = z
   .object({
-    id: z.string().min(1),
-    gameId: z.string().min(1),
-    releaseId: z.string().min(1).optional(),
+    id: identifierSchema,
+    gameId: identifierSchema,
+    releaseId: identifierSchema.optional(),
     kind: mediaKindSchema,
-    url: z.url(),
-    thumbnailUrl: z.url().optional(),
+    url: httpUrlSchema,
+    thumbnailUrl: httpUrlSchema.optional(),
     width: z.number().int().positive().optional(),
     height: z.number().int().positive().optional(),
-    locale: z.string().min(2).optional(),
-    region: z.string().min(2).optional(),
-    platformId: z.string().min(1).optional(),
+    locale: z.string().min(2).max(64).optional(),
+    region: z.string().min(2).max(128).optional(),
+    platformId: identifierSchema.optional(),
     verified: z.boolean().default(false),
     source: sourceRefSchema,
-    attribution: z.string().optional(),
+    attribution: z.string().max(MAX_SHORT_TEXT_LENGTH).optional(),
   })
   .superRefine((asset, context) => {
     if (asset.kind === 'cover-front' && !asset.releaseId && !asset.platformId) {
@@ -84,14 +120,14 @@ export const ratingKindSchema = z.enum(['player', 'editorial', 'personal']);
 export type RatingKind = z.infer<typeof ratingKindSchema>;
 
 export const ratingSchema = z.object({
-  id: z.string().min(1),
-  gameId: z.string().min(1),
-  releaseId: z.string().min(1).optional(),
+  id: identifierSchema,
+  gameId: identifierSchema,
+  releaseId: identifierSchema.optional(),
   kind: ratingKindSchema,
   score: z.number().min(0).max(100),
   votes: z.number().int().nonnegative().optional(),
-  label: z.string().optional(),
-  platformScope: z.string().optional(),
+  label: z.string().max(MAX_SHORT_TEXT_LENGTH).optional(),
+  platformScope: z.string().max(MAX_SHORT_TEXT_LENGTH).optional(),
   source: sourceRefSchema,
 });
 export type Rating = z.infer<typeof ratingSchema>;
@@ -108,41 +144,41 @@ export const releaseFormatSchema = z.enum([
 export type ReleaseFormat = z.infer<typeof releaseFormatSchema>;
 
 export const releaseSchema = z.object({
-  id: z.string().min(1),
-  gameId: z.string().min(1),
+  id: identifierSchema,
+  gameId: identifierSchema,
   platform: platformSchema,
-  title: z.string().min(1),
-  region: z.string().default('worldwide'),
-  locale: z.string().optional(),
+  title: shortTextSchema,
+  region: z.string().max(128).default('worldwide'),
+  locale: z.string().max(64).optional(),
   releaseDate: z.iso.date().optional(),
   year: z.number().int().min(1950).max(2200).optional(),
-  edition: z.string().optional(),
-  formats: z.array(releaseFormatSchema).default(['unknown']),
-  media: z.array(mediaAssetSchema).default([]),
-  ratings: z.array(ratingSchema).default([]),
-  sourceRefs: z.array(sourceRefSchema).min(1),
+  edition: z.string().max(MAX_SHORT_TEXT_LENGTH).optional(),
+  formats: z.array(releaseFormatSchema).max(16).default(['unknown']),
+  media: z.array(mediaAssetSchema).max(512).default([]),
+  ratings: z.array(ratingSchema).max(128).default([]),
+  sourceRefs: z.array(sourceRefSchema).min(1).max(128),
 });
 export type Release = z.infer<typeof releaseSchema>;
 
 export const localizedTextSchema = z.object({
-  locale: z.string().min(2),
-  text: z.string().min(1),
+  locale: z.string().min(2).max(64),
+  text: z.string().min(1).max(MAX_LONG_TEXT_LENGTH),
   source: sourceRefSchema,
   official: z.boolean().default(false),
 });
 export type LocalizedText = z.infer<typeof localizedTextSchema>;
 
 export const gameSchema = z.object({
-  id: z.string().min(1),
-  title: z.string().min(1),
-  aliases: z.array(z.string().min(1)).default([]),
-  descriptions: z.array(localizedTextSchema).default([]),
-  genres: z.array(z.string().min(1)).default([]),
-  developers: z.array(z.string().min(1)).default([]),
-  publishers: z.array(z.string().min(1)).default([]),
-  franchises: z.array(z.string().min(1)).default([]),
-  releaseIds: z.array(z.string().min(1)).default([]),
-  sourceRefs: z.array(sourceRefSchema).min(1),
+  id: identifierSchema,
+  title: shortTextSchema,
+  aliases: z.array(shortTextSchema).max(256).default([]),
+  descriptions: z.array(localizedTextSchema).max(64).default([]),
+  genres: z.array(shortTextSchema).max(128).default([]),
+  developers: z.array(shortTextSchema).max(128).default([]),
+  publishers: z.array(shortTextSchema).max(128).default([]),
+  franchises: z.array(shortTextSchema).max(128).default([]),
+  releaseIds: z.array(identifierSchema).max(2048).default([]),
+  sourceRefs: z.array(sourceRefSchema).min(1).max(128),
 });
 export type Game = z.infer<typeof gameSchema>;
 
@@ -185,9 +221,9 @@ export const copyCompletenessSchema = z.enum([
 export type CopyCompleteness = z.infer<typeof copyCompletenessSchema>;
 
 export const collectionEntrySchema = z.object({
-  id: z.string().min(1),
-  releaseId: z.string().min(1),
-  listIds: z.array(z.string().min(1)).default([]),
+  id: identifierSchema,
+  releaseId: identifierSchema,
+  listIds: z.array(identifierSchema).max(10_000).default([]),
   status: collectionStatusSchema.default('backlog'),
   ownership: ownershipSchema.default('none'),
   format: releaseFormatSchema.default('unknown'),
@@ -196,13 +232,13 @@ export const collectionEntrySchema = z.object({
   completeness: copyCompletenessSchema.default('unknown'),
   priority: z.number().int().min(1).max(5).default(3),
   personalRating: z.number().min(0).max(100).nullable().default(null),
-  notes: z.string().default(''),
-  tags: z.array(z.string().min(1)).default([]),
-  quantity: z.number().int().positive().default(1),
+  notes: z.string().max(MAX_LONG_TEXT_LENGTH).default(''),
+  tags: z.array(z.string().min(1).max(256)).max(256).default([]),
+  quantity: z.number().int().positive().max(1_000_000).default(1),
   acquiredAt: z.iso.date().nullable().default(null),
-  purchasePrice: z.number().nonnegative().nullable().default(null),
+  purchasePrice: z.number().nonnegative().max(1_000_000_000_000).nullable().default(null),
   currency: z.string().length(3).nullable().default(null),
-  customCoverUrl: z.url().nullable().default(null),
+  customCoverUrl: httpUrlSchema.nullable().default(null),
   createdAt: z.iso.datetime(),
   updatedAt: z.iso.datetime(),
 });
@@ -215,10 +251,10 @@ export const collectionGroupingSchema = z.enum(['none', 'platform']);
 export type CollectionGrouping = z.infer<typeof collectionGroupingSchema>;
 
 export const userListSchema = z.object({
-  id: z.string().min(1),
-  name: z.string().min(1),
+  id: identifierSchema,
+  name: shortTextSchema,
   preset: z.enum(['collection', 'wishlist', 'backlog', 'custom']).default('custom'),
-  entryIds: z.array(z.string().min(1)).default([]),
+  entryIds: z.array(identifierSchema).max(MAX_COLLECTION_ITEMS).default([]),
   preferredView: collectionViewSchema.default('rows'),
   groupBy: collectionGroupingSchema.default('none'),
   sort: z.enum(['manual', 'title', 'year', 'platform', 'rating', 'recent']).default('manual'),
@@ -227,27 +263,81 @@ export const userListSchema = z.object({
 });
 export type UserList = z.infer<typeof userListSchema>;
 
-export const releaseSnapshotSchema = z.object({
-  game: gameSchema,
-  release: releaseSchema,
-});
+export const releaseSnapshotSchema = z
+  .object({
+    game: gameSchema,
+    release: releaseSchema,
+  })
+  .superRefine((snapshot, context) => {
+    if (snapshot.release.gameId !== snapshot.game.id) {
+      context.addIssue({
+        code: 'custom',
+        path: ['release', 'gameId'],
+        message: 'Snapshot release must reference the enclosed game.',
+      });
+    }
+  });
 export type ReleaseSnapshot = z.infer<typeof releaseSnapshotSchema>;
 
-export const collectionExportSchema = z.object({
-  format: z.literal('save-slot-collection'),
-  version: z.literal(1),
-  exportedAt: z.iso.datetime(),
-  lists: z.array(userListSchema),
-  entries: z.array(collectionEntrySchema),
-  snapshots: z.array(releaseSnapshotSchema),
-});
+export const collectionExportSchema = z
+  .object({
+    format: z.literal('save-slot-collection'),
+    version: z.literal(1),
+    exportedAt: z.iso.datetime(),
+    lists: z.array(userListSchema).max(10_000),
+    entries: z.array(collectionEntrySchema).max(MAX_COLLECTION_ITEMS),
+    snapshots: z.array(releaseSnapshotSchema).max(MAX_COLLECTION_ITEMS),
+  })
+  .superRefine((data, context) => {
+    const listIds = data.lists.map((list) => list.id);
+    const entryIds = data.entries.map((entry) => entry.id);
+    const releaseIds = data.snapshots.map((snapshot) => snapshot.release.id);
+    addDuplicateIssues(listIds, ['lists'], context);
+    addDuplicateIssues(entryIds, ['entries'], context);
+    addDuplicateIssues(releaseIds, ['snapshots'], context);
+
+    const validListIds = new Set(listIds);
+    const validEntryIds = new Set(entryIds);
+    const validReleaseIds = new Set(releaseIds);
+
+    for (const [entryIndex, entry] of data.entries.entries()) {
+      if (!validReleaseIds.has(entry.releaseId)) {
+        context.addIssue({
+          code: 'custom',
+          path: ['entries', entryIndex, 'releaseId'],
+          message: `Collection entry references a missing release: ${entry.releaseId}`,
+        });
+      }
+      for (const [listIndex, listId] of entry.listIds.entries()) {
+        if (!validListIds.has(listId)) {
+          context.addIssue({
+            code: 'custom',
+            path: ['entries', entryIndex, 'listIds', listIndex],
+            message: `Collection entry references a missing list: ${listId}`,
+          });
+        }
+      }
+    }
+
+    for (const [listIndex, list] of data.lists.entries()) {
+      for (const [entryIndex, entryId] of list.entryIds.entries()) {
+        if (!validEntryIds.has(entryId)) {
+          context.addIssue({
+            code: 'custom',
+            path: ['lists', listIndex, 'entryIds', entryIndex],
+            message: `List references a missing collection entry: ${entryId}`,
+          });
+        }
+      }
+    }
+  });
 export type CollectionExport = z.infer<typeof collectionExportSchema>;
 
 export const searchResultSchema = z.object({
   game: gameSchema,
-  releases: z.array(releaseSchema),
+  releases: z.array(releaseSchema).max(2048),
   relevance: z.number().min(0).max(1),
-  providers: z.array(providerIdSchema),
+  providers: z.array(providerIdSchema).max(32),
 });
 export type SearchResult = z.infer<typeof searchResultSchema>;
 
