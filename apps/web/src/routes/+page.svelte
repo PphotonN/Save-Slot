@@ -16,6 +16,7 @@
     ensureDefaultList,
     type CollectionRepository,
   } from '@save-slot/storage';
+  import ApiCacheStatus from '$lib/components/ApiCacheStatus.svelte';
   import CollectionPanel from '$lib/components/CollectionPanel.svelte';
   import GameCard from '$lib/components/GameCard.svelte';
   import SlotPanel from '$lib/components/SlotPanel.svelte';
@@ -27,6 +28,7 @@
   const client = new CatalogClient();
   let repository: CollectionRepository;
   let activeRequest: AbortController | null = null;
+  let detailRequest: AbortController | null = null;
 
   let activeTab = $state<Tab>('search');
   let query = $state('');
@@ -166,6 +168,7 @@
   }
 
   function selectResult(result: SearchResult): void {
+    detailRequest?.abort();
     const activeRelease = result.releases[0];
     const groupedResult = results.find((candidate) => candidate.game.id === result.game.id);
     if (!activeRelease || !groupedResult) {
@@ -200,8 +203,33 @@
     };
   }
 
-  function selectSnapshot(snapshot: ReleaseSnapshot): void {
+  async function selectSnapshot(snapshot: ReleaseSnapshot): Promise<void> {
+    detailRequest?.abort();
+    const request = new AbortController();
+    detailRequest = request;
     selected = resultFromSnapshot(snapshot);
+
+    try {
+      const refreshed = await client.game(snapshot.game.id, request.signal);
+      if (!refreshed || request.signal.aborted) return;
+      const activeRelease = refreshed.releases.find((release) => release.id === snapshot.release.id);
+      if (!activeRelease) return;
+
+      selected = {
+        ...refreshed,
+        releases: [
+          activeRelease,
+          ...refreshed.releases.filter((release) => release.id !== activeRelease.id),
+        ],
+      };
+      const refreshedSnapshot = { game: refreshed.game, release: activeRelease };
+      await repository.putSnapshot(refreshedSnapshot);
+      snapshots = new Map(snapshots).set(activeRelease.id, refreshedSnapshot);
+    } catch (error) {
+      if (!request.signal.aborted) {
+        console.warn('[Save Slot] Cached detail refresh failed:', error);
+      }
+    }
   }
 
   async function toggleCollection(result: SearchResult): Promise<void> {
@@ -323,7 +351,11 @@
       await loadDiscovery();
     })();
 
-    return () => window.removeEventListener('save-slot-library-cache', handleLibraryCacheStatus);
+    return () => {
+      activeRequest?.abort();
+      detailRequest?.abort();
+      window.removeEventListener('save-slot-library-cache', handleLibraryCacheStatus);
+    };
   });
 </script>
 
@@ -441,7 +473,7 @@
       <CollectionPanel
         {entries}
         onRemove={(entry) => void removeEntry(entry)}
-        onSelect={selectSnapshot}
+        onSelect={(snapshot) => void selectSnapshot(snapshot)}
         onUpdate={(entry, patch) => void updateEntry(entry, patch)}
         onViewChange={(view) => void changeCollectionView(view)}
         {snapshots}
@@ -482,6 +514,7 @@
               <input bind:this={importInput} accept="application/json,.json" hidden onchange={importCollection} type="file" />
             </div>
           </div>
+          <ApiCacheStatus />
         </div>
       </section>
     {/if}
