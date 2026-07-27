@@ -100,10 +100,11 @@ export class FixtureProvider implements ProviderAdapter {
     const filtered = filterSearchResults(fixtureSearchResults, request);
     const items = filtered.slice(offset, offset + limit);
     const nextOffset = offset + items.length;
+    const nextCursor = nextOffset < filtered.length ? String(nextOffset) : null;
 
     return {
       items,
-      nextCursor: nextOffset < filtered.length ? String(nextOffset) : undefined,
+      ...(nextCursor ? { nextCursor } : {}),
       providers: [
         {
           id: this.id,
