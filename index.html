@@ -1,0 +1,166 @@
+<!doctype html>
+<html lang="uk">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <meta name="theme-color" content="#0d0f0f" />
+  <meta name="description" content="Save Slot — локальний пошуковик і менеджер списків відеоігор." />
+  <title>Save Slot</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=Press+Start+2P&display=swap" rel="stylesheet" />
+  <link rel="stylesheet" href="styles.css" />
+</head>
+<body>
+  <div class="scanlines" aria-hidden="true"></div>
+
+  <header class="topbar">
+    <a class="brand" href="#" aria-label="Save Slot — на головну">
+      <span class="brand-mark" aria-hidden="true">▣</span>
+      <span>SAVE SLOT</span>
+    </a>
+
+    <nav class="top-actions" aria-label="Дії зі списком">
+      <button class="pixel-button secondary" id="importButton" type="button">ІМПОРТ</button>
+      <button class="pixel-button secondary" id="exportButton" type="button">ЕКСПОРТ</button>
+      <button class="pixel-button" id="openListButton" type="button">
+        СПИСОК <span class="counter" id="savedCount">0</span>
+      </button>
+      <input id="importInput" type="file" accept="application/json,.json" hidden />
+    </nav>
+  </header>
+
+  <main>
+    <section class="hero" aria-labelledby="pageTitle">
+      <p class="eyebrow">ЗНАЙДИ НАСТУПНУ ГРУ</p>
+      <h1 id="pageTitle">Пошук без зайвого шуму.</h1>
+      <p class="hero-copy">Фільтруй ігри за платформою, рейтингом і тривалістю. Зберігай власні добірки локально та перенось їх одним JSON-файлом.</p>
+
+      <form class="search-panel" id="searchForm">
+        <label class="search-field">
+          <span class="sr-only">Назва гри</span>
+          <span class="prompt" aria-hidden="true">&gt;</span>
+          <input id="searchInput" type="search" placeholder="Введи назву або жанр..." autocomplete="off" />
+        </label>
+        <button class="pixel-button search-button" type="submit">ПОШУК</button>
+      </form>
+    </section>
+
+    <section class="workspace" aria-label="Пошук ігор">
+      <aside class="filters" aria-label="Фільтри">
+        <div class="filter-heading">
+          <span>ФІЛЬТРИ</span>
+          <button id="resetFilters" class="text-button" type="button">СКИНУТИ</button>
+        </div>
+
+        <label class="control-group">
+          <span>ПЛАТФОРМА</span>
+          <select id="platformFilter">
+            <option value="all">Усі платформи</option>
+          </select>
+        </label>
+
+        <label class="control-group">
+          <span>ЖАНР</span>
+          <select id="genreFilter">
+            <option value="all">Усі жанри</option>
+          </select>
+        </label>
+
+        <label class="control-group">
+          <span>МІН. РЕЙТИНГ: <output id="ratingOutput">70</output></span>
+          <input id="ratingFilter" type="range" min="0" max="100" value="70" step="1" />
+        </label>
+
+        <label class="control-group">
+          <span>ОСНОВНИЙ СЮЖЕТ ДО</span>
+          <select id="lengthFilter">
+            <option value="all">Будь-яка тривалість</option>
+            <option value="5">5 годин</option>
+            <option value="10">10 годин</option>
+            <option value="20">20 годин</option>
+            <option value="40">40 годин</option>
+            <option value="80">80 годин</option>
+          </select>
+        </label>
+
+        <label class="check-row">
+          <input id="hiddenGemFilter" type="checkbox" />
+          <span class="fake-check" aria-hidden="true"></span>
+          <span>Тільки приховані перлини</span>
+        </label>
+      </aside>
+
+      <div class="results-area">
+        <div class="results-header">
+          <div>
+            <p class="eyebrow">РЕЗУЛЬТАТИ</p>
+            <h2 id="resultsTitle">Рекомендовані ігри</h2>
+          </div>
+          <label class="sort-control">
+            <span>СОРТУВАТИ</span>
+            <select id="sortSelect">
+              <option value="rating">За рейтингом</option>
+              <option value="length">За тривалістю</option>
+              <option value="year">За роком</option>
+              <option value="title">За назвою</option>
+            </select>
+          </label>
+        </div>
+
+        <div class="game-grid" id="gameGrid" aria-live="polite"></div>
+        <p class="empty-state" id="emptyState" hidden>За цими фільтрами нічого не знайдено.</p>
+      </div>
+    </section>
+  </main>
+
+  <dialog class="list-dialog" id="listDialog">
+    <div class="dialog-shell">
+      <div class="dialog-header">
+        <div>
+          <p class="eyebrow">ЛОКАЛЬНЕ ЗБЕРЕЖЕННЯ</p>
+          <h2>Мій список</h2>
+        </div>
+        <button class="icon-button" id="closeListButton" type="button" aria-label="Закрити">×</button>
+      </div>
+
+      <label class="list-name-field">
+        <span>НАЗВА СПИСКУ</span>
+        <input id="listNameInput" type="text" maxlength="80" value="Мій список ігор" />
+      </label>
+
+      <div class="saved-list" id="savedList"></div>
+      <p class="empty-state" id="emptyListState">Список порожній. Додай ігри з каталогу.</p>
+
+      <div class="dialog-footer">
+        <button class="pixel-button danger" id="clearListButton" type="button">ОЧИСТИТИ</button>
+        <button class="pixel-button" id="dialogExportButton" type="button">ЕКСПОРТ JSON</button>
+      </div>
+    </div>
+  </dialog>
+
+  <template id="gameCardTemplate">
+    <article class="game-card tilt-card">
+      <div class="cartridge">
+        <div class="cover-wrap">
+          <img class="game-cover" alt="" loading="lazy" />
+          <span class="platform-chip"></span>
+          <button class="save-button" type="button" aria-label="Додати до списку">＋</button>
+        </div>
+        <div class="cartridge-notch" aria-hidden="true"></div>
+      </div>
+      <div class="game-info">
+        <h3 class="game-title"></h3>
+        <div class="game-meta">
+          <span class="rating"></span>
+          <span class="length"></span>
+          <span class="year"></span>
+        </div>
+        <div class="game-tags"></div>
+      </div>
+    </article>
+  </template>
+
+  <script src="app.js" defer></script>
+</body>
+</html>
