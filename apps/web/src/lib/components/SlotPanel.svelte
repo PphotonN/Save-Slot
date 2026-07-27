@@ -4,11 +4,12 @@
     getPlayerRating,
     getPrimaryCover,
     type CollectionEntry,
+    type LocalizedText,
     type MediaAsset,
     type SearchResult,
     type SourceRef,
   } from '@save-slot/domain';
-  import type { SupportedLocale } from '@save-slot/i18n';
+  import { formatLabel, translate, type SupportedLocale } from '@save-slot/i18n';
 
   interface Props {
     selected: SearchResult | null;
@@ -24,14 +25,97 @@
   let { selected, entry, locale, onToggleCollection, onRatingChange, onReleaseChange }: Props = $props();
   let useLocalizedDescription = $state(true);
   let activeTab = $state<DetailTab>('overview');
-  let selectedScreenshot = $state<MediaAsset | null>(null);
+  let selectedMedia = $state<MediaAsset | null>(null);
 
+  const copy = {
+    uk: {
+      slot: 'Слот вибраної гри',
+      collectionSystem: 'Система колекції',
+      releases: 'Доступні платформні релізи',
+      sections: 'Розділи інформації про гру',
+      media: 'Медіа',
+      region: 'Регіон',
+      worldwide: 'Увесь світ',
+      rating: 'Рейтинг',
+      language: 'Мова',
+      noDescription: 'Опис поки відсутній.',
+      officialDescription: 'Офіційний опис',
+      editorialDescription: 'Редакційний опис',
+      genres: 'Жанри',
+      developer: 'Розробник',
+      publisher: 'Видавець',
+      gameMedia: 'Медіа гри',
+      screenshot: 'Скриншот',
+      titleScreen: 'Титульний екран',
+      noMedia: 'Медіа немає',
+      noMediaDescription: 'Для цього релізу джерела ще не надали скриншотів або титульних екранів.',
+      noRatings: 'Оцінок немає',
+      noRatingsDescription: 'Рейтинг цього релізу ще не отримано.',
+      votesUnknown: 'Кількість голосів невідома',
+      votes: '{count} голосів',
+      addToRate: 'Додайте реліз до колекції, щоб оцінити його.',
+      open: 'Відкрити ↗',
+      noSources: 'Джерел немає',
+      close: 'Закрити',
+      officialStore: 'Офіційний магазин',
+      localData: 'Локальні дані',
+    },
+    en: {
+      slot: 'Selected game slot',
+      collectionSystem: 'Collection system',
+      releases: 'Available platform releases',
+      sections: 'Game information sections',
+      media: 'Media',
+      region: 'Region',
+      worldwide: 'Worldwide',
+      rating: 'Rating',
+      language: 'Language',
+      noDescription: 'No description is available yet.',
+      officialDescription: 'Official description',
+      editorialDescription: 'Editorial description',
+      genres: 'Genres',
+      developer: 'Developer',
+      publisher: 'Publisher',
+      gameMedia: 'Game media',
+      screenshot: 'Screenshot',
+      titleScreen: 'Title screen',
+      noMedia: 'No media',
+      noMediaDescription: 'Sources have not provided screenshots or title screens for this release yet.',
+      noRatings: 'No ratings',
+      noRatingsDescription: 'A rating for this release has not been retrieved yet.',
+      votesUnknown: 'Vote count is unknown',
+      votes: '{count} votes',
+      addToRate: 'Add the release to your collection to rate it.',
+      open: 'Open ↗',
+      noSources: 'No sources',
+      close: 'Close',
+      officialStore: 'Official store',
+      localData: 'Local data',
+    },
+  } as const;
+
+  let text = $derived(copy[locale]);
   let release = $derived(selected?.releases[0]);
   let cover = $derived(release ? getPrimaryCover(release) : undefined);
   let playerRating = $derived(release ? getPlayerRating(release) : undefined);
-  let screenshots = $derived(release?.media.filter((asset) => asset.kind === 'screenshot') ?? []);
-  let localizedDescription = $derived(selected ? getDescription(selected.game, locale) : undefined);
-  let originalDescription = $derived(selected ? getDescription(selected.game, 'en') : undefined);
+  let mediaItems = $derived(
+    release?.media.filter(
+      (asset) => asset.kind === 'screenshot' || asset.kind === 'title-screen',
+    ) ?? [],
+  );
+  let localizedDescription = $derived.by(() => {
+    if (!selected) return undefined;
+    return (
+      selected.game.descriptions.find((description) =>
+        description.locale.toLocaleLowerCase().startsWith(locale),
+      ) ?? getDescription(selected.game, locale)
+    );
+  });
+  let originalDescription = $derived.by(() =>
+    selected?.game.descriptions.find((description) =>
+      description.locale.toLocaleLowerCase().startsWith('en'),
+    ),
+  );
   let description = $derived(
     useLocalizedDescription
       ? localizedDescription ?? originalDescription
@@ -50,18 +134,21 @@
     if (!selected || !release) return [] as SourceRef[];
     const refs = [
       ...selected.game.sourceRefs,
+      ...selected.game.descriptions.map((item) => item.source),
       ...release.sourceRefs,
       ...release.media.map((asset) => asset.source),
       ...release.ratings.map((rating) => rating.source),
     ];
-    return [...new Map(refs.map((source) => [`${source.provider}:${source.id}`, source])).values()];
+    return [...new Map(refs.map((source) => [`${source.provider}:${source.id}`, source])).values()]
+      .sort((left, right) => sourceName(left.provider).localeCompare(sourceName(right.provider), locale));
   });
 
   $effect(() => {
     release?.id;
+    locale;
     useLocalizedDescription = true;
     activeTab = 'overview';
-    selectedScreenshot = null;
+    selectedMedia = null;
   });
 
   function updateRating(event: Event): void {
@@ -79,41 +166,50 @@
       libretro: 'Libretro',
       pcgamingwiki: 'PCGamingWiki',
       wikipedia: 'Wikipedia',
-      'official-store': 'Офіційний магазин',
-      manual: 'Локальні дані',
+      'official-store': text.officialStore,
+      manual: text.localData,
     };
     return labels[provider];
   }
 
   function formatVotes(votes?: number): string {
-    return votes == null ? 'Кількість голосів невідома' : `${Intl.NumberFormat('uk-UA').format(votes)} голосів`;
+    if (votes == null) return text.votesUnknown;
+    return text.votes.replace('{count}', Intl.NumberFormat(locale).format(votes));
+  }
+
+  function descriptionKind(item: LocalizedText): string {
+    return item.official ? text.officialDescription : text.editorialDescription;
+  }
+
+  function mediaKind(item: MediaAsset): string {
+    return item.kind === 'title-screen' ? text.titleScreen : text.screenshot;
   }
 
   function closeLightbox(): void {
-    selectedScreenshot = null;
+    selectedMedia = null;
   }
 
   function handleWindowKeydown(event: KeyboardEvent): void {
-    if (event.key === 'Escape' && selectedScreenshot) closeLightbox();
+    if (event.key === 'Escape' && selectedMedia) closeLightbox();
   }
 </script>
 
 <svelte:window onkeydown={handleWindowKeydown} />
 
-<section class:has-game={Boolean(selected)} class="slot-panel" aria-label="Слот вибраної гри">
+<section class:has-game={Boolean(selected)} class="slot-panel" aria-label={text.slot}>
   <div class="slot-stage">
     <div class="slot-chassis">
       <div class="slot-mouth"></div>
       {#key release?.id ?? 'save-slot-home'}
         <div class:inserted={Boolean(release)} class="slot-cartridge">
           {#if release && cover}
-            <img class="slot-cover" src={cover.url} alt={`Боксарт ${selected?.game.title ?? ''}`} />
+            <img class="slot-cover" src={cover.url} alt={`${translate(locale, 'customCover')}: ${selected?.game.title ?? ''}`} />
             <span class="cartridge-platform">{release.platform.name}</span>
           {:else}
             <div class="save-slot-label">
               <span class="slot-symbol">▣</span>
               <strong>SAVE<br />SLOT</strong>
-              <small>COLLECTION SYSTEM</small>
+              <small>{text.collectionSystem.toLocaleUpperCase(locale)}</small>
             </div>
           {/if}
         </div>
@@ -130,7 +226,7 @@
       </header>
 
       {#if selected.releases.length > 1}
-        <div class="release-selector" aria-label="Доступні платформні релізи">
+        <div class="release-selector" aria-label={text.releases}>
           {#each selected.releases as option (option.id)}
             <button
               class:active={option.id === release.id}
@@ -144,60 +240,60 @@
         </div>
       {/if}
 
-      <nav class="detail-tabs" aria-label="Розділи інформації про гру">
-        <button class:active={activeTab === 'overview'} onclick={() => (activeTab = 'overview')} type="button">ОГЛЯД</button>
-        <button class:active={activeTab === 'media'} onclick={() => (activeTab = 'media')} type="button">МЕДІА {screenshots.length || ''}</button>
-        <button class:active={activeTab === 'ratings'} onclick={() => (activeTab = 'ratings')} type="button">ОЦІНКИ</button>
-        <button class:active={activeTab === 'sources'} onclick={() => (activeTab = 'sources')} type="button">ДЖЕРЕЛА</button>
+      <nav class="detail-tabs" aria-label={text.sections}>
+        <button class:active={activeTab === 'overview'} onclick={() => (activeTab = 'overview')} type="button">{translate(locale, 'overview').toLocaleUpperCase(locale)}</button>
+        <button class:active={activeTab === 'media'} onclick={() => (activeTab = 'media')} type="button">{text.media.toLocaleUpperCase(locale)} {mediaItems.length || ''}</button>
+        <button class:active={activeTab === 'ratings'} onclick={() => (activeTab = 'ratings')} type="button">{translate(locale, 'ratings').toLocaleUpperCase(locale)}</button>
+        <button class:active={activeTab === 'sources'} onclick={() => (activeTab = 'sources')} type="button">{translate(locale, 'sources').toLocaleUpperCase(locale)}</button>
       </nav>
 
       {#if activeTab === 'overview'}
         <dl class="game-facts">
-          <div><dt>РІК</dt><dd>{release.year ?? '—'}</dd></div>
-          <div><dt>ПЛАТФОРМА</dt><dd>{release.platform.name}</dd></div>
-          <div><dt>РЕГІОН</dt><dd>{release.region || 'worldwide'}</dd></div>
-          <div><dt>ФОРМАТ</dt><dd>{release.formats.join(', ') || '—'}</dd></div>
-          <div><dt>РЕЙТИНГ</dt><dd>{playerRating ? `${Math.round(playerRating.score)}%` : '—'}</dd></div>
-          <div><dt>МОЯ ОЦІНКА</dt><dd>{entry?.personalRating == null ? '—' : `${entry.personalRating}/100`}</dd></div>
+          <div><dt>{translate(locale, 'releaseYear').toLocaleUpperCase(locale)}</dt><dd>{release.year ?? '—'}</dd></div>
+          <div><dt>{translate(locale, 'platform').toLocaleUpperCase(locale)}</dt><dd>{release.platform.name}</dd></div>
+          <div><dt>{text.region.toLocaleUpperCase(locale)}</dt><dd>{release.region === 'worldwide' ? text.worldwide : release.region}</dd></div>
+          <div><dt>{translate(locale, 'format').toLocaleUpperCase(locale)}</dt><dd>{release.formats.map((item) => formatLabel(locale, item)).join(', ') || '—'}</dd></div>
+          <div><dt>{text.rating.toLocaleUpperCase(locale)}</dt><dd>{playerRating ? `${Math.round(playerRating.score)}%` : '—'}</dd></div>
+          <div><dt>{translate(locale, 'personalRating').toLocaleUpperCase(locale)}</dt><dd>{entry?.personalRating == null ? '—' : `${entry.personalRating}/100`}</dd></div>
         </dl>
 
         <div class="description-block">
           <div class="section-heading">
-            <span>ОПИС</span>
+            <span>{translate(locale, 'description').toLocaleUpperCase(locale)}</span>
             {#if canToggleDescription}
               <button type="button" onclick={() => (useLocalizedDescription = !useLocalizedDescription)}>
-                {useLocalizedDescription ? 'ОРИГІНАЛ' : `МОВА ${locale.toLocaleUpperCase()}`}
+                {useLocalizedDescription ? translate(locale, 'original').toLocaleUpperCase(locale) : `${text.language.toLocaleUpperCase(locale)} ${locale.toLocaleUpperCase()}`}
               </button>
             {/if}
           </div>
-          <p>{description?.text ?? 'Опис поки відсутній.'}</p>
+          <p>{description?.text ?? text.noDescription}</p>
           {#if description}
-            <small>{description.official ? 'Офіційний опис' : 'Редакційний опис'} · {sourceName(description.source.provider)}</small>
+            <small>{descriptionKind(description)} · {sourceName(description.source.provider)}</small>
           {/if}
         </div>
 
         {#if selected.game.genres.length || selected.game.developers.length || selected.game.publishers.length}
           <section class="credits-block">
-            {#if selected.game.genres.length}<div><span>ЖАНРИ</span><p>{selected.game.genres.join(', ')}</p></div>{/if}
-            {#if selected.game.developers.length}<div><span>РОЗРОБНИК</span><p>{selected.game.developers.join(', ')}</p></div>{/if}
-            {#if selected.game.publishers.length}<div><span>ВИДАВЕЦЬ</span><p>{selected.game.publishers.join(', ')}</p></div>{/if}
+            {#if selected.game.genres.length}<div><span>{text.genres.toLocaleUpperCase(locale)}</span><p>{selected.game.genres.join(', ')}</p></div>{/if}
+            {#if selected.game.developers.length}<div><span>{text.developer.toLocaleUpperCase(locale)}</span><p>{selected.game.developers.join(', ')}</p></div>{/if}
+            {#if selected.game.publishers.length}<div><span>{text.publisher.toLocaleUpperCase(locale)}</span><p>{selected.game.publishers.join(', ')}</p></div>{/if}
           </section>
         {/if}
       {:else if activeTab === 'media'}
-        {#if screenshots.length}
-          <section class="screenshot-section" aria-label="Скриншоти гри">
-            <div class="section-heading"><span>СКРИНШОТИ</span><small>{screenshots.length}</small></div>
+        {#if mediaItems.length}
+          <section class="screenshot-section" aria-label={text.gameMedia}>
+            <div class="section-heading"><span>{text.media.toLocaleUpperCase(locale)}</span><small>{mediaItems.length}</small></div>
             <div class="screenshot-grid">
-              {#each screenshots as screenshot}
-                <button onclick={() => (selectedScreenshot = screenshot)} type="button">
-                  <img src={screenshot.thumbnailUrl ?? screenshot.url} alt={`Скриншот ${selected.game.title}`} loading="lazy" />
-                  <span>{sourceName(screenshot.source.provider)}</span>
+              {#each mediaItems as item}
+                <button onclick={() => (selectedMedia = item)} type="button">
+                  <img src={item.thumbnailUrl ?? item.url} alt={`${mediaKind(item)}: ${selected.game.title}`} loading="lazy" />
+                  <span>{mediaKind(item)} · {sourceName(item.source.provider)}</span>
                 </button>
               {/each}
             </div>
           </section>
         {:else}
-          <div class="empty-detail"><strong>СКРИНШОТІВ НЕМАЄ</strong><span>Для цього релізу джерела ще не надали зображень.</span></div>
+          <div class="empty-detail"><strong>{text.noMedia.toLocaleUpperCase(locale)}</strong><span>{text.noMediaDescription}</span></div>
         {/if}
       {:else if activeTab === 'ratings'}
         <section class="ratings-section">
@@ -210,18 +306,18 @@
               </article>
             {/each}
           {:else}
-            <div class="empty-detail"><strong>ОЦІНОК НЕМАЄ</strong><span>Рейтинг цього релізу ще не отримано.</span></div>
+            <div class="empty-detail"><strong>{text.noRatings.toLocaleUpperCase(locale)}</strong><span>{text.noRatingsDescription}</span></div>
           {/if}
 
           <article class="rating-card personal">
-            <div><strong>{entry?.personalRating == null ? '—' : `${entry.personalRating}%`}</strong><span>МОЯ ОЦІНКА</span></div>
+            <div><strong>{entry?.personalRating == null ? '—' : `${entry.personalRating}%`}</strong><span>{translate(locale, 'personalRating').toLocaleUpperCase(locale)}</span></div>
             {#if entry}
               <label class="rating-input">
                 <span>0–100</span>
-                <input aria-label="Особиста оцінка" max="100" min="0" oninput={updateRating} placeholder="—" type="number" value={entry.personalRating ?? ''} />
+                <input aria-label={translate(locale, 'personalRating')} max="100" min="0" onchange={updateRating} placeholder="—" type="number" value={entry.personalRating ?? ''} />
               </label>
             {:else}
-              <p>Додайте реліз до колекції, щоб оцінити його.</p>
+              <p>{text.addToRate}</p>
             {/if}
           </article>
         </section>
@@ -230,28 +326,28 @@
           {#each sourceRows as source}
             <article>
               <div><strong>{sourceName(source.provider)}</strong><span>{source.id}</span></div>
-              {#if source.url}<a href={source.url} target="_blank" rel="noreferrer">ВІДКРИТИ ↗</a>{/if}
+              {#if source.url}<a href={source.url} target="_blank" rel="noreferrer">{text.open.toLocaleUpperCase(locale)}</a>{/if}
             </article>
           {/each}
-          {#if !sourceRows.length}<div class="empty-detail"><strong>ДЖЕРЕЛ НЕМАЄ</strong></div>{/if}
+          {#if !sourceRows.length}<div class="empty-detail"><strong>{text.noSources.toLocaleUpperCase(locale)}</strong></div>{/if}
         </section>
       {/if}
 
       <div class="slot-actions">
         <button class:danger={Boolean(entry)} class="primary-action" type="button" onclick={onToggleCollection}>
-          {entry ? 'ВИДАЛИТИ З КОЛЕКЦІЇ' : 'ДОДАТИ ДО КОЛЕКЦІЇ'}
+          {translate(locale, entry ? 'removeFromCollection' : 'addToCollection').toLocaleUpperCase(locale)}
         </button>
       </div>
     </div>
   {/if}
 </section>
 
-{#if selectedScreenshot}
-  <div class="lightbox" onclick={closeLightbox} role="presentation">
+{#if selectedMedia}
+  <div class="lightbox" onclick={closeLightbox} role="dialog" aria-modal="true" aria-label={mediaKind(selectedMedia)}>
     <figure onclick={(event) => event.stopPropagation()}>
-      <button onclick={closeLightbox} type="button" aria-label="Закрити">×</button>
-      <img src={selectedScreenshot.url} alt={`Скриншот ${selected?.game.title ?? ''}`} />
-      <figcaption>{selected?.game.title} · {sourceName(selectedScreenshot.source.provider)}</figcaption>
+      <button onclick={closeLightbox} type="button" aria-label={text.close}>×</button>
+      <img src={selectedMedia.url} alt={`${mediaKind(selectedMedia)}: ${selected?.game.title ?? ''}`} />
+      <figcaption>{selected?.game.title} · {mediaKind(selectedMedia)} · {sourceName(selectedMedia.source.provider)}</figcaption>
     </figure>
   </div>
 {/if}
@@ -299,7 +395,7 @@
   .screenshot-grid { display: grid; grid-template-columns: repeat(2,minmax(0,1fr)); gap: .38rem; margin-top: .65rem; }
   .screenshot-grid button { position: relative; overflow: hidden; padding: 0; aspect-ratio: 16/9; background: #080c0d; border: 1px solid var(--line); }
   .screenshot-grid img { display: block; width: 100%; height: 100%; object-fit: cover; }
-  .screenshot-grid button span { position: absolute; right: 4px; bottom: 4px; padding: .2rem; color: var(--muted-light); font: .28rem/1.2 var(--pixel-font); background: rgba(3,6,7,.82); }
+  .screenshot-grid button span { position: absolute; right: 4px; bottom: 4px; max-width: calc(100% - 8px); padding: .2rem; overflow: hidden; color: var(--muted-light); font: .28rem/1.2 var(--pixel-font); text-overflow: ellipsis; white-space: nowrap; background: rgba(3,6,7,.82); }
   .ratings-section { display: grid; gap: .5rem; }
   .rating-card { padding: .7rem; background: #0b1113; border: 1px solid var(--line); }
   .rating-card > div { display: flex; align-items: baseline; justify-content: space-between; gap: .6rem; }
