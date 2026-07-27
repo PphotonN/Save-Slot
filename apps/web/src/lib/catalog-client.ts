@@ -111,7 +111,7 @@ export class CatalogClient {
     return {
       items,
       ...(page.nextCursor ? { nextCursor: page.nextCursor } : {}),
-      total: items.length + (page.nextCursor ? 1 : 0),
+      total: page.total ?? items.length,
     };
   }
 
