@@ -30,6 +30,14 @@ async function prepareLocalApp(page: Page): Promise<void> {
     });
   });
 
+  await page.route('https://**/*', async (route) => {
+    if (route.request().resourceType() === 'image') {
+      await route.abort();
+      return;
+    }
+    await route.continue();
+  });
+
   await page.goto('/');
   await expect(page.locator('.game-card').first()).toBeVisible({ timeout: 20_000 });
 }
@@ -54,6 +62,7 @@ test('switches the interface language and keeps it after reload', async ({ page 
 
   await expect(page.locator('html')).toHaveAttribute('lang', 'en');
   await expect(visibleNavigation(page).getByRole('button', { name: 'SEARCH', exact: true })).toBeVisible();
+  await expect(page.locator('.cache-card')).toContainText('ONLINE CATALOGUE CACHE');
 
   await visibleNavigation(page).getByRole('button', { name: 'SEARCH', exact: true }).click();
   await expect(page.getByPlaceholder('Game title, series, developer…')).toBeVisible();
@@ -83,6 +92,15 @@ test('sorting changes order without changing the visible card set', async ({ pag
   const sortedTitles = await page.locator('.game-card h2').allTextContents();
   const expected = [...initialTitles].sort(new Intl.Collator('uk').compare);
   expect(sortedTitles).toEqual(expected);
+});
+
+test('inserts a selected release into Three.js or the CSS fallback slot', async ({ page }) => {
+  await page.locator('.game-card .card-select').first().click();
+  await expect(page.locator('.game-header h1')).toBeVisible();
+  await expect(page.locator('.fallback-cartridge')).toHaveClass(/inserted/);
+  await expect(page.locator('.scene-shell')).toHaveAttribute('data-renderer', /ready|fallback/, {
+    timeout: 20_000,
+  });
 });
 
 test('creates a custom list and restores it from IndexedDB after reload', async ({ page }) => {
