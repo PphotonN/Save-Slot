@@ -12,7 +12,7 @@
     "dev:api": "pnpm --filter @save-slot/api dev",
     "build": "pnpm -r --if-present build",
     "check": "pnpm -r --if-present check",
-    "test": "pnpm -r --if-present test",
+    "test": "vitest run",
     "lint": "prettier --check .",
     "format": "prettier --write ."
   },
