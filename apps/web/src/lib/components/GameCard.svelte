@@ -1,6 +1,7 @@
 <script lang="ts">
+  import { onMount } from 'svelte';
   import { getPlayerRating, getPrimaryCover, type SearchResult } from '@save-slot/domain';
-  import { translate, type SupportedLocale } from '@save-slot/i18n';
+  import { detectLocale, translate, type SupportedLocale } from '@save-slot/i18n';
 
   interface Props {
     result: SearchResult;
@@ -17,10 +18,12 @@
     selected,
     owned,
     revealIndex,
-    locale = 'uk',
+    locale: providedLocale,
     onSelect,
     onToggle,
   }: Props = $props();
+  let documentLocale = $state<SupportedLocale>('uk');
+  let locale = $derived(providedLocale ?? documentLocale);
   let imageFailed = $state(false);
   let release = $derived(result.releases[0]);
   let cover = $derived(release ? getPrimaryCover(release) : undefined);
@@ -29,6 +32,16 @@
   $effect(() => {
     release?.id;
     imageFailed = false;
+  });
+
+  onMount(() => {
+    const synchronize = () => {
+      documentLocale = detectLocale(document.documentElement.lang);
+    };
+    synchronize();
+    const observer = new MutationObserver(synchronize);
+    observer.observe(document.documentElement, { attributes: true, attributeFilter: ['lang'] });
+    return () => observer.disconnect();
   });
 </script>
 
