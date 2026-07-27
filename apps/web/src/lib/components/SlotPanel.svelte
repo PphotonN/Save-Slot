@@ -22,6 +22,7 @@
   let release = $derived(selected?.releases[0]);
   let cover = $derived(release ? getPrimaryCover(release) : undefined);
   let playerRating = $derived(release ? getPlayerRating(release) : undefined);
+  let screenshots = $derived(release?.media.filter((asset) => asset.kind === 'screenshot').slice(0, 6) ?? []);
   let description = $derived(
     selected
       ? getDescription(selected.game, useLocalizedDescription ? locale : 'en') ??
@@ -47,7 +48,7 @@
       {#key release?.id ?? 'save-slot-home'}
         <div class:inserted={Boolean(release)} class="slot-cartridge">
           {#if release && cover}
-            <img src={cover.url} alt={`Боксарт ${selected?.game.title ?? ''}`} />
+            <img class="slot-cover" src={cover.url} alt={`Боксарт ${selected?.game.title ?? ''}`} />
             <span class="cartridge-platform">{release.platform.name}</span>
           {:else}
             <div class="save-slot-label">
@@ -82,7 +83,7 @@
       </dl>
 
       <div class="description-block">
-        <div class="description-heading">
+        <div class="section-heading">
           <span>ОПИС</span>
           {#if locale !== 'en' && selected.game.descriptions.some((item) => item.locale === 'en')}
             <button type="button" onclick={() => (useLocalizedDescription = !useLocalizedDescription)}>
@@ -92,6 +93,26 @@
         </div>
         <p>{description?.text ?? 'Опис поки відсутній.'}</p>
       </div>
+
+      {#if screenshots.length}
+        <section class="screenshot-section" aria-label="Скриншоти гри">
+          <div class="section-heading">
+            <span>СКРИНШОТИ</span>
+            <small>{screenshots.length}</small>
+          </div>
+          <div class="screenshot-grid">
+            {#each screenshots as screenshot}
+              <a href={screenshot.url} target="_blank" rel="noreferrer">
+                <img
+                  src={screenshot.thumbnailUrl ?? screenshot.url}
+                  alt={`Скриншот ${selected.game.title}`}
+                  loading="lazy"
+                />
+              </a>
+            {/each}
+          </div>
+        </section>
+      {/if}
 
       <div class="slot-actions">
         <button class:danger={Boolean(entry)} class="primary-action" type="button" onclick={onToggleCollection}>
@@ -121,8 +142,8 @@
     min-height: 100%;
     display: flex;
     flex-direction: column;
-    gap: 1.4rem;
-    padding: 1.1rem;
+    gap: 1.2rem;
+    padding: 1rem;
     background:
       linear-gradient(90deg, rgba(255, 255, 255, 0.018) 1px, transparent 1px) 0 0 / 7px 7px,
       #0b0f11;
@@ -132,13 +153,13 @@
   .slot-stage {
     display: grid;
     place-items: center;
-    min-height: 300px;
+    min-height: 285px;
     perspective: 820px;
   }
 
   .slot-chassis {
     position: relative;
-    width: min(290px, 90%);
+    width: min(280px, 90%);
     aspect-ratio: 1 / 0.92;
     padding: 24px 28px 34px;
     transform: rotateX(4deg) rotateY(-4deg);
@@ -181,20 +202,28 @@
     animation: rigid-insert 680ms cubic-bezier(0.18, 0.82, 0.2, 1) both;
   }
 
-  .slot-cartridge img {
+  .slot-cover {
+    display: block;
     width: 100%;
     height: 100%;
     object-fit: cover;
-    image-rendering: auto;
     filter: saturate(0.94) contrast(1.04);
   }
 
-  .slot-cartridge img::after {
+  .slot-cartridge::after {
+    position: absolute;
+    inset: 0;
+    pointer-events: none;
     content: '';
+    background:
+      repeating-linear-gradient(0deg, rgba(255, 255, 255, 0.018) 0 1px, transparent 1px 3px),
+      linear-gradient(135deg, rgba(255, 255, 255, 0.12), transparent 28%);
+    mix-blend-mode: overlay;
   }
 
   .cartridge-platform {
     position: absolute;
+    z-index: 2;
     left: 10px;
     right: 10px;
     bottom: 10px;
@@ -237,74 +266,106 @@
 
   .game-details {
     display: grid;
-    gap: 1rem;
+    gap: 0.85rem;
     min-height: 0;
   }
 
   .game-details header p,
-  .description-heading,
+  .section-heading,
   dt,
   .rating-input span {
     color: var(--accent-cool);
-    font: 0.48rem/1.4 var(--pixel-font);
+    font: 0.46rem/1.4 var(--pixel-font);
   }
 
   .game-details h1 {
-    margin: 0.35rem 0 0;
-    font-size: clamp(1.45rem, 2.4vw, 2.25rem);
+    margin: 0.32rem 0 0;
+    font-size: clamp(1.35rem, 2.4vw, 2.15rem);
     line-height: 1.05;
   }
 
   .game-facts {
     display: grid;
     grid-template-columns: repeat(2, minmax(0, 1fr));
-    gap: 0.5rem;
+    gap: 0.45rem;
     margin: 0;
   }
 
   .game-facts div {
     min-width: 0;
-    padding: 0.7rem;
+    padding: 0.65rem;
     background: rgba(17, 24, 26, 0.78);
     border: 1px solid var(--line);
   }
 
   dd {
-    margin: 0.35rem 0 0;
+    margin: 0.32rem 0 0;
     overflow-wrap: anywhere;
     font-weight: 700;
   }
 
-  .description-block {
-    padding: 0.85rem;
+  .description-block,
+  .screenshot-section {
+    padding: 0.78rem;
     background: rgba(17, 24, 26, 0.56);
     border: 1px solid var(--line);
   }
 
-  .description-heading {
+  .section-heading {
     display: flex;
     align-items: center;
     justify-content: space-between;
     gap: 0.75rem;
   }
 
-  .description-heading button {
+  .section-heading button {
     color: var(--accent);
     font: inherit;
     background: transparent;
     border: 0;
   }
 
+  .section-heading small {
+    color: var(--muted);
+  }
+
   .description-block p {
-    margin: 0.75rem 0 0;
+    margin: 0.7rem 0 0;
     color: var(--muted-light);
-    font-size: 0.9rem;
-    line-height: 1.55;
+    font-size: 0.88rem;
+    line-height: 1.52;
+  }
+
+  .screenshot-grid {
+    display: grid;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    gap: 0.38rem;
+    margin-top: 0.65rem;
+  }
+
+  .screenshot-grid a {
+    display: block;
+    overflow: hidden;
+    aspect-ratio: 16 / 9;
+    background: #080c0d;
+    border: 1px solid var(--line);
+  }
+
+  .screenshot-grid img {
+    display: block;
+    width: 100%;
+    height: 100%;
+    object-fit: cover;
+    transition: transform 160ms ease;
+  }
+
+  .screenshot-grid a:hover img {
+    transform: scale(1.035);
   }
 
   .slot-actions {
     display: grid;
-    gap: 0.65rem;
+    gap: 0.6rem;
   }
 
   .primary-action,
@@ -316,7 +377,7 @@
   .primary-action {
     padding: 0.75rem;
     color: #151303;
-    font: 0.52rem/1.3 var(--pixel-font);
+    font: 0.5rem/1.3 var(--pixel-font);
     background: var(--accent);
   }
 
@@ -399,32 +460,33 @@
 
     .game-details {
       align-content: center;
-      gap: 0.55rem;
+      gap: 0.5rem;
       overflow: hidden;
     }
 
     .game-details h1 {
-      font-size: 1.05rem;
+      font-size: 1.02rem;
     }
 
     .game-facts {
       grid-template-columns: repeat(4, minmax(0, 1fr));
-      gap: 0.3rem;
+      gap: 0.28rem;
     }
 
     .game-facts div {
-      padding: 0.4rem;
+      padding: 0.38rem;
     }
 
     dt {
-      font-size: 0.34rem;
+      font-size: 0.32rem;
     }
 
     dd {
-      font-size: 0.68rem;
+      font-size: 0.66rem;
     }
 
     .description-block,
+    .screenshot-section,
     .slot-actions,
     .game-details header p {
       display: none;
