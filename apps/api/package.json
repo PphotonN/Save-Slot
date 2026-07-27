@@ -1,0 +1,23 @@
+{
+  "name": "@save-slot/api",
+  "version": "1.0.0-alpha.1",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "dev": "wrangler dev",
+    "build": "wrangler deploy --dry-run --outdir dist",
+    "check": "tsc --noEmit",
+    "test": "vitest run",
+    "types": "wrangler types"
+  },
+  "dependencies": {
+    "@save-slot/domain": "workspace:*",
+    "@save-slot/providers": "workspace:*"
+  },
+  "devDependencies": {
+    "@cloudflare/workers-types": "^5.20260724.1",
+    "typescript": "catalog:",
+    "vitest": "catalog:",
+    "wrangler": "^4.113.0"
+  }
+}
