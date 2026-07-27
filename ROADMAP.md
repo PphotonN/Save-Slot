@@ -33,6 +33,7 @@ Exit criteria:
 - [x] Configure Prettier and Vitest.
 - [x] Add GitHub Actions for install, typecheck, formatting, unit tests and build.
 - [x] Add environment examples without secrets.
+- [x] Add automatic portable Windows bootstrap and launcher.
 - [ ] Add ESLint rules where they provide value beyond TypeScript and Svelte checks.
 - [ ] Add Playwright.
 - [ ] Add a private preview deployment only when explicitly approved.
@@ -53,6 +54,8 @@ Exit criteria:
 - [x] Implement IndexedDB database and version boundary.
 - [x] Implement collection CRUD.
 - [x] Implement versioned JSON export/import.
+- [x] Mirror the collection to `.save-slot-data/library.json` in the project folder.
+- [x] Keep an atomic `library.backup.json` before file replacement.
 - [x] Add tests preserving notes, ratings and release identity through export/import.
 - [x] Add offline application and collection shell.
 - [ ] Add explicit IndexedDB migration fixtures for schema version 2 and later.
@@ -61,11 +64,12 @@ Exit criteria:
 
 - [x] users can create and manage collection entries offline;
 - [x] export/restore produces an equivalent collection;
-- [x] collection entries always reference a release.
+- [x] collection entries always reference a release;
+- [x] local launcher runs the project file mirror without administrator rights.
 
 ## Phase 3 — Aggregation Worker
 
-**Status:** first production provider pipeline implemented
+**Status:** normalized provider pipeline and cache implemented
 
 - [x] Define normalized API routes and schemas.
 - [x] Add provider adapter interface.
@@ -73,7 +77,11 @@ Exit criteria:
 - [x] Add localized labels, descriptions, dates, platforms and external ID extraction.
 - [x] Normalize provider platform labels at the API boundary.
 - [x] Add request timeouts, abort propagation and partial provider results.
-- [ ] Add Worker cache and persistent online detail lookup.
+- [x] Add layered Worker memory, Cache API and optional KV-compatible cache.
+- [x] Cache normalized search pages independently from sorting.
+- [x] Persist discovered game and release details under stable cache keys.
+- [x] Make `/v1/games/:id` and `/v1/releases/:id` work for cached online entities.
+- [x] Add `/v1/cache` diagnostics without exposing credentials or personal data.
 - [ ] Implement IGDB adapter after credential and terms review.
 - [ ] Implement MobyGames/RAWG adapters only after licensing review.
 - [x] Implement baseline canonical merge and deduplication contracts.
@@ -86,7 +94,8 @@ Exit criteria:
 - [x] media enrichment can combine additional provider data with the canonical release;
 - [x] provider interfaces support partial results instead of a global failure;
 - [x] provider IDs remain traceable in the canonical model;
-- [ ] arbitrary online detail routes survive Worker restarts through cache/persistence.
+- [x] previously discovered online details survive through an available persistent cache backend;
+- [x] the application still works without an optional KV binding.
 
 ## Phase 4 — Search and discovery
 
@@ -101,7 +110,7 @@ Exit criteria:
 - [x] Generate discovery from randomized live search seeds with fixture fallback.
 - [x] Keep filtering, sorting and rendering independent.
 - [x] Implement stable keyed cards and progressive reveal.
-- [x] Add right-to-left visual reveal for newly accepted cards.
+- [x] Add left-to-right row construction and reveal for newly accepted cards.
 - [x] Add empty, loading and fallback states.
 
 Exit criteria:
@@ -113,32 +122,35 @@ Exit criteria:
 
 ## Phase 5 — Release-specific media and details
 
-**Status:** first live media pipeline implemented
+**Status:** release selection and sourced detail interface implemented
 
 - [x] Keep selected information attached to a concrete release.
 - [x] Show release-specific cover, platform, year and player rating when available.
-- [ ] Implement release selection for multi-release games.
+- [x] Implement release selection for multi-release games.
 - [x] Implement verified cover media contracts.
 - [x] Implement Libretro `Named_Boxarts` adapter behind the Worker.
 - [x] Implement Steam PC enrichment behind the Worker.
 - [x] Add Steam screenshot gallery for linked PC releases.
 - [x] Add official Steam description precedence for linked PC releases.
-- [ ] Add separate sourced rating panels in the interface.
+- [x] Add separate sourced rating panels in the interface.
 - [x] Add description precedence contracts.
-- [ ] Add provider/source diagnostics and attribution to the interface.
+- [x] Add provider/source diagnostics and attribution to the interface.
+- [x] Add screenshot lightbox with visible source label.
+- [x] Refresh collection snapshots from cached game detail routes.
 - [ ] Add additional console/retro screenshot sources.
 - [ ] Add custom cover override editor for personal collection entries.
 
 Exit criteria:
 
 - [x] a selected release shows its concrete platform and best available cover;
-- [ ] screenshots are visibly labelled by platform and source;
+- [x] available screenshots are visibly labelled by source;
 - [x] the media model does not treat screenshots or banners as covers;
-- [x] ratings retain source and sample size in the domain model.
+- [x] ratings retain source and sample size in the domain model;
+- [x] opening a collection entry can restore the cached multi-release game group.
 
 ## Phase 6 — Collection experience
 
-**Status:** first local collection workflow implemented
+**Status:** searchable and editable local collection implemented
 
 - [x] Add ownership, format, progress, priority, tags, notes and personal rating to the model.
 - [x] Add default local collection list.
@@ -149,13 +161,16 @@ Exit criteria:
 - [x] Add cartridge-shelf view.
 - [x] Preserve preferred view per list.
 - [x] Permit multiple releases of the same game through release-based entries.
-- [ ] Add editing UI for all ownership and copy-condition fields.
+- [x] Add collection search, status/platform filters and sorting.
+- [x] Add editing UI for ownership, format, status, rating, priority, quantity, acquisition date, price, tags and notes.
+- [ ] Add physical copy condition fields to the canonical model and editor.
 
 Exit criteria:
 
 - [x] the model distinguishes physical and digital versions;
 - [x] multiple releases of the same game can coexist;
-- [x] all three views use the same collection entries.
+- [x] all three views use the same collection entries;
+- [x] collection changes are mirrored to the project file automatically.
 
 ## Phase 7 — PS1 slot scene
 
