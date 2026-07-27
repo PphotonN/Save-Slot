@@ -16,7 +16,8 @@
     "@save-slot/providers": "workspace:*",
     "@save-slot/ps1-scene": "workspace:*",
     "@save-slot/storage": "workspace:*",
-    "@save-slot/ui": "workspace:*"
+    "@save-slot/ui": "workspace:*",
+    "zod": "catalog:"
   },
   "devDependencies": {
     "@sveltejs/adapter-static": "^3.0.10",
