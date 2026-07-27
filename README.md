@@ -28,11 +28,11 @@ The branch contains a functional application foundation:
 - SvelteKit mobile-first PWA shell;
 - Cloudflare Worker aggregation API;
 - canonical `Game → Release → CollectionEntry` domain model validated with Zod;
-- IndexedDB collection repository with memory fallback;
+- IndexedDB working copy with automatic project-folder mirroring;
 - versioned JSON export and import;
 - random discovery on every application start;
 - search, platform filtering and sorting implemented as separate operations;
-- progressive right-to-left card reveal;
+- progressive left-to-right card reveal and row filling;
 - desktop left-side slot and smartphone layout;
 - collection views: compact list, medium rows and cartridges;
 - rigid cartridge insertion animation that preserves cover aspect ratio;
@@ -49,6 +49,15 @@ The branch contains a functional application foundation:
 
 IGDB, MobyGames and RAWG remain deferred until credentials, attribution and current terms are reviewed.
 
+## Local collection files
+
+While the app is running locally, collection data is stored in two places:
+
+- IndexedDB keeps the responsive browser working copy;
+- `.save-slot-data/library.json` inside the repository is the persistent project copy.
+
+Before each file replacement, the previous project copy is preserved as `.save-slot-data/library.backup.json`. The entire `.save-slot-data` directory is ignored by Git so personal collection data is not committed accidentally.
+
 ## Workspace
 
 ```text
@@ -59,10 +68,12 @@ apps/
 packages/
   domain/       Entities, validation and business rules
   providers/    Catalogue and media provider adapters
-  storage/      IndexedDB and export/import
+  storage/      IndexedDB, project-file mirroring and export/import
   ui/           Shared UI contracts and stable reveal behavior
   i18n/         Interface languages and translation contracts
   ps1-scene/    Rigid PS1 slot and cartridge scene contracts
+scripts/
+  library-cache-server.mjs   Local project-folder collection service
 ```
 
 ## Quick launch
@@ -83,12 +94,12 @@ No separate Node.js, npm, pnpm or Corepack installation is required. On the firs
 - installs the required pnpm version into `.runtime`;
 - creates `apps/web/.env` and `apps/api/.dev.vars` when missing;
 - installs, updates or rebuilds project dependencies for the active runtime;
-- opens the Worker and web application in separate terminal windows;
-- waits for the local servers and opens `http://localhost:5173`.
+- starts the project library cache, Worker and web application;
+- waits for the local services and opens `http://localhost:5173`.
 
 The setup does not modify the system and does not require administrator rights. The first launch requires Internet access. Subsequent launches reuse the local runtime and package cache.
 
-Close the **Save Slot API** and **Save Slot Web** terminal windows to stop the local application.
+Close the **Save Slot Library**, **Save Slot API** and **Save Slot Web** terminal windows to stop the local application.
 
 ### Linux and macOS
 
@@ -97,7 +108,7 @@ chmod +x start-save-slot.sh
 ./start-save-slot.sh
 ```
 
-This launcher expects Node.js 24 or newer. Press `Ctrl+C` to stop both processes.
+This launcher expects Node.js 24 or newer. Press `Ctrl+C` to stop all three processes.
 
 ## Local development
 
@@ -112,9 +123,10 @@ cp apps/web/.env.example apps/web/.env
 cp apps/api/.dev.vars.example apps/api/.dev.vars
 ```
 
-Run the Worker and web application in separate terminals:
+Run the three services in separate terminals:
 
 ```bash
+pnpm dev:library
 pnpm dev:api
 pnpm dev
 ```
@@ -153,4 +165,5 @@ No API credentials may be placed in client-side variables. `VITE_SAVE_SLOT_API_U
 - Never use screenshots or horizontal promotional art as silent box-art replacements.
 - Every rating and media item must retain its source and scope.
 - Filtering, sorting and rendering must remain independent.
+- Cartridge rows fill from left to right on desktop and mobile.
 - Desktop and mobile layouts are designed together.
