@@ -1,6 +1,6 @@
 <script lang="ts">
   import { onMount } from 'svelte';
-  import type { SupportedLocale } from '@save-slot/i18n';
+  import { detectLocale, type SupportedLocale } from '@save-slot/i18n';
   import { CatalogClient, type CatalogueCacheStatus } from '$lib/catalog-client';
 
   interface Props {
@@ -8,7 +8,9 @@
   }
 
   const client = new CatalogClient();
-  let { locale = 'uk' }: Props = $props();
+  let { locale: providedLocale }: Props = $props();
+  let documentLocale = $state<SupportedLocale>('uk');
+  let locale = $derived(providedLocale ?? documentLocale);
   let status = $state<CatalogueCacheStatus | null>(null);
   let loading = $state(false);
   let messageKind = $state<'idle' | 'checking' | 'active' | 'unavailable' | 'error'>('idle');
@@ -95,7 +97,14 @@
   }
 
   onMount(() => {
+    const synchronize = () => {
+      documentLocale = detectLocale(document.documentElement.lang);
+    };
+    synchronize();
+    const observer = new MutationObserver(synchronize);
+    observer.observe(document.documentElement, { attributes: true, attributeFilter: ['lang'] });
     void refresh();
+    return () => observer.disconnect();
   });
 </script>
 
