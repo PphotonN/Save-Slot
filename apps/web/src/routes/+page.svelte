@@ -13,6 +13,7 @@
   import { sortSearchResults, type SearchSort } from '@save-slot/providers';
   import {
     createCollectionRepository,
+    createUserList,
     ensureDefaultList,
     type CollectionRepository,
   } from '@save-slot/storage';
@@ -48,6 +49,7 @@
   let selected = $state<SearchResult | null>(null);
   let entries = $state<CollectionEntry[]>([]);
   let lists = $state<UserList[]>([]);
+  let activeListId = $state('');
   let snapshots = $state<Map<string, ReleaseSnapshot>>(new Map());
   let collectionView = $state<CollectionView>('rows');
   let locale = $state<SupportedLocale>('uk');
@@ -177,11 +179,17 @@
     void runSearch();
   }
 
-  async function loadCollection(): Promise<void> {
-    const defaultList = await ensureDefaultList(repository);
+  async function refreshCollectionState(): Promise<void> {
     lists = await repository.listLists();
     entries = await repository.listEntries();
-    collectionView = defaultList.preferredView;
+  }
+
+  async function loadCollection(): Promise<void> {
+    const defaultList = await ensureDefaultList(repository);
+    await refreshCollectionState();
+    if (!lists.some((list) => list.id === activeListId)) activeListId = defaultList.id;
+    const activeList = lists.find((list) => list.id === activeListId) ?? defaultList;
+    collectionView = activeList.preferredView;
     const pairs = await Promise.all(
       entries.map(async (entry) => [entry.releaseId, await repository.getSnapshot(entry.releaseId)] as const),
     );
@@ -192,6 +200,7 @@
 
   async function loadDiscovery(): Promise<void> {
     activeRequest?.abort();
+    loadingMore = false;
     closeSuggestions();
     const request = new AbortController();
     activeRequest = request;
@@ -220,6 +229,7 @@
       return;
     }
     activeRequest?.abort();
+    loadingMore = false;
     closeSuggestions();
     const request = new AbortController();
     activeRequest = request;
@@ -245,7 +255,9 @@
       const releaseCount = page.items.flatMap((item) => item.releases).length;
       statusText = page.items.length
         ? `Показано ${results.length} із ${page.total} ігор, ${releaseCount} платформних релізів.`
-        : 'За поточним запитом нічого не знайдено.';
+        : nextCursor
+          ? 'Поточна сторінка не має прийнятих обкладинок. Можна продовжити пошук.'
+          : 'За поточним запитом нічого не знайдено.';
     } catch (error) {
       if (!request.signal.aborted) {
         statusText = error instanceof Error ? error.message : 'Пошук завершився помилкою.';
@@ -283,7 +295,7 @@
         statusText = error instanceof Error ? error.message : 'Не вдалося дозавантажити результати.';
       }
     } finally {
-      if (activeRequest === request) loadingMore = false;
+      loadingMore = false;
     }
   }
 
@@ -371,10 +383,13 @@
       return;
     }
 
+    const collectionList =
+      lists.find((list) => list.preset === 'collection') ?? (await ensureDefaultList(repository));
     const base = createCollectionEntry(release.id);
     const physical = release.formats.some((format) => ['physical', 'disc', 'cartridge'].includes(format));
     const entry: CollectionEntry = {
       ...base,
+      listIds: [collectionList.id],
       status: physical ? 'owned' : 'backlog',
       ownership: physical ? 'physical' : 'digital',
       format: release.formats[0] ?? 'unknown',
@@ -382,24 +397,14 @@
     };
     await repository.putSnapshot({ game: result.game, release });
     await repository.putEntry(entry);
-
-    const list = lists[0] ?? (await ensureDefaultList(repository));
-    const updatedList: UserList = {
-      ...list,
-      entryIds: [...new Set([...list.entryIds, entry.id])],
-      updatedAt: new Date().toISOString(),
-    };
-    await repository.putList(updatedList);
-    lists = [updatedList, ...lists.filter((item) => item.id !== updatedList.id)];
-    entries = [...entries, entry];
+    await refreshCollectionState();
     snapshots = new Map(snapshots).set(release.id, { game: result.game, release });
     statusText = `${result.game.title} — ${release.platform.name} додано до колекції.`;
   }
 
   async function removeEntry(entry: CollectionEntry): Promise<void> {
     await repository.deleteEntry(entry.id);
-    entries = entries.filter((item) => item.id !== entry.id);
-    lists = await repository.listLists();
+    await refreshCollectionState();
     statusText = 'Запис видалено з колекції.';
   }
 
@@ -419,15 +424,68 @@
       updatedAt: new Date().toISOString(),
     };
     await repository.putEntry(updated);
-    entries = entries.map((item) => (item.id === updated.id ? updated : item));
+    await refreshCollectionState();
+  }
+
+  async function setEntryLists(entry: CollectionEntry, listIds: string[]): Promise<void> {
+    await repository.setEntryLists(entry.id, listIds);
+    await refreshCollectionState();
+    statusText = 'Належність до списків оновлено.';
+  }
+
+  function changeActiveList(listId: string): void {
+    const list = lists.find((candidate) => candidate.id === listId);
+    if (!list) return;
+    activeListId = list.id;
+    collectionView = list.preferredView;
+  }
+
+  async function createList(name: string, preset: UserList['preset']): Promise<void> {
+    if (preset === 'collection') {
+      const collection = await ensureDefaultList(repository);
+      await refreshCollectionState();
+      changeActiveList(collection.id);
+      return;
+    }
+    if (preset !== 'custom') {
+      const existing = lists.find((list) => list.preset === preset);
+      if (existing) {
+        changeActiveList(existing.id);
+        statusText = `Список «${existing.name}» уже існує.`;
+        return;
+      }
+    }
+    const list = createUserList(name, preset);
+    await repository.putList(list);
+    await refreshCollectionState();
+    activeListId = list.id;
+    collectionView = list.preferredView;
+    statusText = `Створено список «${list.name}».`;
+  }
+
+  async function deleteList(list: UserList): Promise<void> {
+    if (list.preset === 'collection') return;
+    await repository.deleteList(list.id);
+    const defaultList = await ensureDefaultList(repository);
+    await refreshCollectionState();
+    activeListId = defaultList.id;
+    collectionView = defaultList.preferredView;
+    statusText = `Список «${list.name}» видалено. Ігри залишились у колекції.`;
   }
 
   async function changeCollectionView(view: CollectionView): Promise<void> {
     collectionView = view;
-    const list = lists[0] ?? (await ensureDefaultList(repository));
-    const updated = { ...list, preferredView: view, updatedAt: new Date().toISOString() };
+    const list =
+      lists.find((candidate) => candidate.id === activeListId) ??
+      lists.find((candidate) => candidate.preset === 'collection') ??
+      (await ensureDefaultList(repository));
+    const updated: UserList = {
+      ...list,
+      preferredView: view,
+      updatedAt: new Date().toISOString(),
+    };
     await repository.putList(updated);
-    lists = [updated, ...lists.filter((item) => item.id !== updated.id)];
+    await refreshCollectionState();
   }
 
   async function exportCollection(): Promise<void> {
@@ -446,6 +504,7 @@
     if (!file) return;
     try {
       await repository.importData(JSON.parse(await file.text()));
+      activeListId = '';
       await loadCollection();
       statusText = 'Колекцію відновлено з резервної копії.';
     } catch (error) {
@@ -614,26 +673,33 @@
               />
             {/each}
           </div>
-          {#if nextCursor && query.trim()}
-            <div class="load-more-row">
-              <button class="secondary-button" disabled={loadingMore} onclick={() => void loadMore()} type="button">
-                {loadingMore ? 'ЗАВАНТАЖЕННЯ…' : 'ПОКАЗАТИ ЩЕ'}
-              </button>
-              <span>{results.length} / {totalSearchResults} ІГОР</span>
-            </div>
-          {/if}
-        {:else if !loading}
+        {:else if !loading && !nextCursor}
           <div class="empty-results">
             <strong>НІЧОГО НЕ ЗНАЙДЕНО</strong>
             <span>Змініть запит або платформу.</span>
           </div>
         {/if}
+
+        {#if nextCursor && query.trim()}
+          <div class="load-more-row">
+            <button class="secondary-button" disabled={loadingMore} onclick={() => void loadMore()} type="button">
+              {loadingMore ? 'ЗАВАНТАЖЕННЯ…' : 'ПОКАЗАТИ ЩЕ'}
+            </button>
+            <span>{results.length} / {totalSearchResults} ІГОР</span>
+          </div>
+        {/if}
       </section>
     {:else if activeTab === 'collection'}
       <CollectionPanel
+        {activeListId}
         {entries}
+        {lists}
+        onCreateList={(name, preset) => void createList(name, preset)}
+        onDeleteList={(list) => void deleteList(list)}
+        onListChange={changeActiveList}
         onRemove={(entry) => void removeEntry(entry)}
         onSelect={(snapshot) => void selectSnapshot(snapshot)}
+        onSetEntryLists={(entry, listIds) => void setEntryLists(entry, listIds)}
         onUpdate={(entry, patch) => void updateEntry(entry, patch)}
         onViewChange={(view) => void changeCollectionView(view)}
         {snapshots}
