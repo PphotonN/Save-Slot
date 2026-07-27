@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { coverObjectFit, interpolateRigidTransform } from './index';
+import { coverObjectFit, coverUvTransform, interpolateRigidTransform } from './index';
 
 describe('PS1 cartridge scene math', () => {
   it('interpolates one uniform scale value instead of deforming axes', () => {
@@ -25,5 +25,30 @@ describe('PS1 cartridge scene math', () => {
     const fitted = coverObjectFit(600, 900, 240, 300);
     expect(fitted.width / fitted.height).toBeCloseTo(600 / 900);
     expect(fitted.height).toBeGreaterThanOrEqual(300);
+  });
+
+  it('crops a wide source symmetrically on the horizontal UV axis', () => {
+    const uv = coverUvTransform(1600, 900, 172, 218);
+    expect(uv.repeatX).toBeLessThan(1);
+    expect(uv.repeatY).toBe(1);
+    expect(uv.offsetX).toBeCloseTo((1 - uv.repeatX) / 2);
+    expect(uv.offsetY).toBe(0);
+  });
+
+  it('crops a narrow source symmetrically on the vertical UV axis', () => {
+    const uv = coverUvTransform(500, 1000, 172, 218);
+    expect(uv.repeatX).toBe(1);
+    expect(uv.repeatY).toBeLessThan(1);
+    expect(uv.offsetX).toBe(0);
+    expect(uv.offsetY).toBeCloseTo((1 - uv.repeatY) / 2);
+  });
+
+  it('returns an identity UV transform for invalid image dimensions', () => {
+    expect(coverUvTransform(0, 900, 172, 218)).toEqual({
+      repeatX: 1,
+      repeatY: 1,
+      offsetX: 0,
+      offsetY: 0,
+    });
   });
 });
