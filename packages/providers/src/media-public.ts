@@ -6,6 +6,10 @@ export {
   type SteamMediaProviderOptions,
 } from './media';
 export {
-  RobustLibretroMediaProvider as LibretroMediaProvider,
-  type RobustLibretroMediaProviderOptions as LibretroMediaProviderOptions,
+  LibretroFullMediaProvider as LibretroMediaProvider,
+  type LibretroFullMediaProviderOptions as LibretroMediaProviderOptions,
+} from './libretro-full';
+export {
+  RobustLibretroMediaProvider,
+  type RobustLibretroMediaProviderOptions,
 } from './libretro';
