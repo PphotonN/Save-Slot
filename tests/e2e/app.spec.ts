@@ -1,3 +1,4 @@
+import { Buffer } from 'node:buffer';
 import { expect, test, type Page } from '@playwright/test';
 
 async function prepareLocalApp(page: Page): Promise<void> {
