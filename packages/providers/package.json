@@ -6,7 +6,8 @@
   "exports": {
     ".": "./src/index.ts",
     "./wikidata": "./src/wikidata.ts",
-    "./media": "./src/media.ts"
+    "./media": "./src/media.ts",
+    "./libretro": "./src/libretro.ts"
   },
   "scripts": {
     "check": "tsc --noEmit",
