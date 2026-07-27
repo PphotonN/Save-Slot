@@ -118,6 +118,27 @@ test('inserts a selected release and persists its artwork mode', async ({ page }
   );
 });
 
+test('rejects non-JSON and oversized collection backups before import', async ({ page }) => {
+  await visibleNavigation(page).getByRole('button', { name: 'ПАРАМЕТРИ', exact: true }).click();
+  const importInput = page.locator('input[type="file"]');
+
+  await importInput.setInputFiles({
+    name: 'library.txt',
+    mimeType: 'text/plain',
+    buffer: Buffer.from('{"format":"save-slot-collection"}'),
+  });
+  await expect(page.getByRole('alert')).toContainText('форматі JSON');
+  await expect(importInput).toHaveValue('');
+
+  await importInput.setInputFiles({
+    name: 'library.json',
+    mimeType: 'application/json',
+    buffer: Buffer.alloc(8 * 1024 * 1024 + 1, 0x20),
+  });
+  await expect(page.getByRole('alert')).toContainText('8 МіБ');
+  await expect(importInput).toHaveValue('');
+});
+
 test('creates a custom list and restores it from IndexedDB after reload', async ({ page }) => {
   await visibleNavigation(page).getByRole('button', { name: 'КОЛЕКЦІЯ', exact: true }).click();
   await page.getByRole('button', { name: '+ СПИСОК', exact: true }).click();
