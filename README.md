@@ -75,15 +75,20 @@ Double-click:
 START_SAVE_SLOT.bat
 ```
 
-The launcher:
+No separate Node.js, npm, pnpm or Corepack installation is required. On the first launch the launcher automatically:
 
-- checks Node.js and pnpm/Corepack;
+- detects the Windows processor architecture;
+- downloads portable Node.js into the local `.runtime` directory;
+- verifies the downloaded archive using the official SHA-256 list;
+- installs the required pnpm version into `.runtime`;
 - creates `apps/web/.env` and `apps/api/.dev.vars` when missing;
-- installs dependencies on the first launch;
+- installs or updates project dependencies;
 - opens the Worker and web application in separate terminal windows;
-- opens `http://localhost:5173` in the default browser.
+- waits for the local servers and opens `http://localhost:5173`.
 
-Close both terminal windows to stop the local application.
+The setup does not modify the system and does not require administrator rights. The first launch requires Internet access. Subsequent launches reuse the local runtime and package cache.
+
+Close the **Save Slot API** and **Save Slot Web** terminal windows to stop the local application.
 
 ### Linux and macOS
 
@@ -96,7 +101,7 @@ Press `Ctrl+C` to stop both processes.
 
 ## Local development
 
-Requirements:
+Manual development requires:
 
 - Node.js 20.19 or newer;
 - pnpm 10.14.
