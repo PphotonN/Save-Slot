@@ -13,8 +13,8 @@
     "build": "pnpm -r --if-present build",
     "check": "pnpm -r --if-present check",
     "test": "vitest run packages",
-    "lint": "prettier --check .",
-    "format": "prettier --write ."
+    "lint": "prettier --check package.json pnpm-workspace.yaml tsconfig.base.json .prettierrc",
+    "format": "prettier --write apps packages package.json pnpm-workspace.yaml tsconfig.base.json"
   },
   "devDependencies": {
     "prettier": "^3.9.6",
