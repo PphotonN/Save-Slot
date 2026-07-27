@@ -15,7 +15,7 @@ const searchResponseSchema = z.object({
 });
 
 export class CatalogClient {
-  constructor(private readonly apiUrl = '') {}
+  constructor(private readonly apiUrl = import.meta.env.VITE_SAVE_SLOT_API_URL ?? '') {}
 
   async search(
     request: SearchRequest,
