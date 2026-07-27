@@ -8,6 +8,12 @@ import {
   type SearchPage,
   type SearchSort,
 } from '@save-slot/providers';
+import {
+  LibretroMediaProvider,
+  SteamMediaProvider,
+  mergeEnrichment,
+  type ReleaseEnricher,
+} from '@save-slot/providers/media';
 import { WikidataProvider } from '@save-slot/providers/wikidata';
 
 interface Env {
@@ -16,6 +22,8 @@ interface Env {
 
 const fixtureProvider = new FixtureProvider();
 const wikidataProvider = new WikidataProvider();
+const libretroProvider = new LibretroMediaProvider({ timeoutMs: 3_000, maxCandidates: 12 });
+const steamProvider = new SteamMediaProvider({ timeoutMs: 7_000 });
 const validSorts = new Set<SearchSort>(['relevance', 'title', 'year', 'rating', 'votes']);
 const discoverySeeds = [
   'Metroid',
@@ -154,6 +162,65 @@ function mergePages(pages: SearchPage[]): SearchPage {
   };
 }
 
+function enrichersFor(result: SearchResult, releaseIndex: number): ReleaseEnricher[] {
+  const release = result.releases[releaseIndex];
+  if (!release) return [];
+  return release.platform.kind === 'desktop' ? [steamProvider] : [libretroProvider];
+}
+
+async function enrichPage(
+  page: SearchPage,
+  locale: string,
+  signal: AbortSignal,
+  maximumResults = 12,
+): Promise<SearchPage> {
+  const items = [...page.items];
+  const queue = items.slice(0, maximumResults).map((result, index) => ({ result, index }));
+  let libretroAttempts = 0;
+  let steamAttempts = 0;
+  const workers = Array.from({ length: Math.min(4, queue.length) }, async () => {
+    while (queue.length) {
+      signal.throwIfAborted();
+      const job = queue.shift();
+      if (!job) return;
+      let game = job.result.game;
+      const releases = [];
+      for (const [releaseIndex, release] of job.result.releases.entries()) {
+        const enrichers = enrichersFor(job.result, releaseIndex);
+        if (enrichers.some((provider) => provider.id === 'libretro')) libretroAttempts += 1;
+        if (enrichers.some((provider) => provider.id === 'steam')) steamAttempts += 1;
+        const settled = await Promise.allSettled(
+          enrichers.map((provider) => provider.enrich(game, release, locale, signal)),
+        );
+        const enrichments = settled.flatMap((result) =>
+          result.status === 'fulfilled' ? [result.value] : [],
+        );
+        const merged = mergeEnrichment(game, release, enrichments);
+        game = merged.game;
+        releases.push(merged.release);
+      }
+      items[job.index] = { ...job.result, game, releases };
+    }
+  });
+  await Promise.all(workers);
+  const providers = [...page.providers];
+  if (libretroAttempts) {
+    providers.push({
+      id: 'libretro',
+      available: true,
+      message: `${libretroAttempts} release box-art checks completed.`,
+    });
+  }
+  if (steamAttempts) {
+    providers.push({
+      id: 'steam',
+      available: true,
+      message: `${steamAttempts} PC release enrichment checks completed.`,
+    });
+  }
+  return { ...page, items, providers };
+}
+
 async function searchCatalogue(
   query: string,
   locale: string,
@@ -166,12 +233,13 @@ async function searchCatalogue(
     normalizePage(await searchWithFallback([wikidataProvider], request, signal)),
     platformId,
   );
-  if (online.items.length) return online;
-  const fallback = filterPageByPlatform(
-    normalizePage(await fixtureProvider.search(request, signal)),
-    platformId,
-  );
-  return mergePages([online, fallback]);
+  const page = online.items.length
+    ? online
+    : mergePages([
+        online,
+        filterPageByPlatform(normalizePage(await fixtureProvider.search(request, signal)), platformId),
+      ]);
+  return enrichPage(page, locale, signal);
 }
 
 async function discoveryCatalogue(
@@ -189,12 +257,23 @@ async function discoveryCatalogue(
     result.status === 'fulfilled' ? [result.value] : [],
   );
   const online = mergePages(onlinePages);
-  if (online.items.length >= Math.min(limit, 8)) {
-    return { ...online, items: shuffled(online.items).slice(0, limit) };
-  }
-  const fallback = await fixtureProvider.search({ query: '', locale, limit }, signal);
-  const merged = mergePages([online, fallback]);
-  return { ...merged, items: shuffled(merged.items).slice(0, limit) };
+  const page = online.items.length >= Math.min(limit, 8)
+    ? { ...online, items: shuffled(online.items).slice(0, limit) }
+    : (() => {
+        const fallback = {
+          items: fixtureSearchResults,
+          providers: [
+            {
+              id: 'manual' as const,
+              available: true,
+              message: 'Fixture discovery fallback.',
+            },
+          ],
+        };
+        const merged = mergePages([online, fallback]);
+        return { ...merged, items: shuffled(merged.items).slice(0, limit) };
+      })();
+  return enrichPage(page, locale, signal);
 }
 
 export default {
@@ -211,7 +290,7 @@ export default {
     if (url.pathname === '/health') {
       return json(request, env, {
         service: 'save-slot-api',
-        version: '1.0.0-alpha.2',
+        version: '1.0.0-alpha.3',
         status: 'ok',
         time: new Date().toISOString(),
       });
@@ -224,7 +303,8 @@ export default {
       ]);
       return json(request, env, {
         providers,
-        planned: ['igdb', 'mobygames', 'rawg', 'libretro', 'steam'],
+        mediaProviders: ['libretro', 'steam'],
+        planned: ['igdb', 'mobygames', 'rawg'],
       });
     }
 
