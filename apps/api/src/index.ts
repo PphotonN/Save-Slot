@@ -8,7 +8,7 @@ interface Env {
 const fixtureProvider = new FixtureProvider();
 const validSorts = new Set<SearchSort>(['relevance', 'title', 'year', 'rating', 'votes']);
 
-function corsHeaders(request: Request, env: Env): HeadersInit {
+function corsHeaders(request: Request, env: Env): Record<string, string> {
   const origin = request.headers.get('Origin');
   const allowed = env.ALLOWED_ORIGIN ?? 'http://localhost:5173';
   return {
