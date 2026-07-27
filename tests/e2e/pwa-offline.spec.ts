@@ -49,6 +49,13 @@ test('restores the application shell and personal collection without network acc
     localStorage.setItem('save-slot-locale', 'uk');
   });
   await stubDesktopLibrary(page);
+  await page.route('https://**/*', async (route) => {
+    if (route.request().resourceType() === 'image') {
+      await route.abort();
+      return;
+    }
+    await route.continue();
+  });
 
   await page.goto('/');
   await expect(page.locator('.game-card').first()).toBeVisible({ timeout: 20_000 });
