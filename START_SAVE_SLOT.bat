@@ -34,6 +34,12 @@ set "PATH=%NODE_HOME%;%PNPM_HOME%;%PATH%"
 if not exist "%PNPM_COMMAND%" goto :setup_failed
 
 echo.
+echo [START] Запускаю кеш бібліотеки: http://127.0.0.1:8791
+start "Save Slot Library" /D "%CD%" "%ComSpec%" /d /k call "%PNPM_COMMAND%" dev:library
+
+"%POWERSHELL_EXE%" -NoLogo -NoProfile -ExecutionPolicy Bypass -Command "$deadline=(Get-Date).AddSeconds(20); do { try { $r=Invoke-WebRequest -UseBasicParsing -Uri 'http://127.0.0.1:8791/health' -TimeoutSec 2; if($r.StatusCode -eq 200){exit 0} } catch {}; Start-Sleep -Milliseconds 500 } while((Get-Date)-lt $deadline); exit 1"
+if errorlevel 1 goto :library_timeout
+
 echo [START] Запускаю Save Slot API: http://localhost:8787
 start "Save Slot API" /D "%CD%" "%ComSpec%" /d /k call "%PNPM_COMMAND%" dev:api
 
@@ -49,7 +55,8 @@ if errorlevel 1 goto :web_timeout
 start "" "http://localhost:5173"
 echo.
 echo [READY] Save Slot запущено.
-echo Закрий вікна Save Slot API та Save Slot Web, щоб зупинити застосунок.
+echo Колекція кешується у .save-slot-data\library.json.
+echo Закрий вікна Save Slot Library, Save Slot API та Save Slot Web, щоб зупинити застосунок.
 echo.
 timeout /t 3 /nobreak >nul
 exit /b 0
@@ -71,6 +78,13 @@ echo.
 echo [ERROR] Автоматична підготовка Save Slot не завершилась.
 echo Перевір повідомлення вище та доступ до Інтернету.
 echo Права адміністратора не потрібні.
+pause
+exit /b 1
+
+:library_timeout
+echo.
+echo [ERROR] Локальний кеш бібліотеки не відповів протягом 20 секунд.
+echo Перевір вікно Save Slot Library — там буде точна помилка.
 pause
 exit /b 1
 
