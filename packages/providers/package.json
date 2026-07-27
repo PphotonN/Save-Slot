@@ -6,7 +6,7 @@
   "exports": {
     ".": "./src/index.ts",
     "./wikidata": "./src/wikidata.ts",
-    "./media": "./src/media.ts",
+    "./media": "./src/media-public.ts",
     "./libretro": "./src/libretro.ts"
   },
   "scripts": {
