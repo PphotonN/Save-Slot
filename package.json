@@ -10,11 +10,12 @@
   "scripts": {
     "dev": "pnpm --filter @save-slot/web dev",
     "dev:api": "pnpm --filter @save-slot/api dev",
+    "dev:library": "node scripts/library-cache-server.mjs",
     "build": "pnpm -r --if-present build",
-    "check": "pnpm -r --if-present check",
+    "check": "node --check scripts/library-cache-server.mjs && pnpm -r --if-present check",
     "test": "vitest run packages",
     "lint": "prettier --check package.json pnpm-workspace.yaml tsconfig.base.json .prettierrc",
-    "format": "prettier --write apps packages package.json pnpm-workspace.yaml tsconfig.base.json"
+    "format": "prettier --write apps packages scripts package.json pnpm-workspace.yaml tsconfig.base.json"
   },
   "devDependencies": {
     "prettier": "^3.9.6",
