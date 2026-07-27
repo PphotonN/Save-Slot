@@ -10,6 +10,7 @@
 - `app-v1` is the integration branch for the new application.
 - The new version is not publicly deployed.
 - New work should use `feature/*` branches created from `app-v1`.
+- A clean GitHub Actions result still needs to be confirmed in the private Actions UI.
 
 ## Product goal
 
@@ -18,7 +19,7 @@ Save Slot must make two tasks simple:
 1. **Find trustworthy information about a game or a specific platform release.**
 2. **Manage a personal game collection from desktop or smartphone.**
 
-The target catalogue covers PC, PlayStation, Xbox, Nintendo, Sega, handheld, retro and mobile releases. Each release should retain its platform, region, box art, screenshots, descriptions and clearly sourced player ratings.
+The target catalogue covers PC, PlayStation, Xbox, Nintendo, Sega, handheld, retro and mobile releases. Each release retains its platform, region, box art, screenshots, descriptions and clearly sourced player ratings.
 
 ## Current alpha
 
@@ -28,8 +29,9 @@ The branch contains a functional application foundation:
 - SvelteKit mobile-first PWA shell;
 - Cloudflare Worker aggregation API;
 - canonical `Game → Release → CollectionEntry` domain model validated with Zod;
-- IndexedDB working copy with automatic project-folder mirroring;
-- versioned JSON export and import;
+- IndexedDB working copy with automatic desktop project-folder mirroring;
+- native Capacitor storage isolated from the desktop localhost service;
+- versioned and bounded JSON export/import with reference-integrity validation;
 - random discovery on every application start;
 - debounced search suggestions with platform and description context;
 - paged search that appends new cards without clearing existing DOM;
@@ -40,9 +42,13 @@ The branch contains a functional application foundation:
 - searchable and editable personal collection;
 - desktop left-side slot and smartphone layout;
 - collection views: compact list, medium rows and cartridges;
-- rigid cartridge insertion animation that preserves cover aspect ratio;
-- Ukrainian and English localization foundation;
-- private CI for formatting, type checking, tests and builds.
+- lazy Three.js PS1-style slot with rigid cover-safe insertion and CSS fallback;
+- persistent `CLEAN`, `PS1` and `CRT` artwork modes;
+- Ukrainian and English interface switching;
+- production PWA offline shell and IndexedDB recovery test;
+- Playwright projects for desktop, Pixel 7 viewport and offline PWA;
+- prepared Capacitor Android wrapper commands;
+- private CI for formatting, type checking, workspace tests, root/subpath builds and acceptance tests.
 
 ### Active catalogue pipeline
 
@@ -61,16 +67,22 @@ Current search paging operates inside a normalized pool of up to 40 games per qu
 
 IGDB, MobyGames and RAWG remain deferred until credentials, attribution and current terms are reviewed.
 
-## Local collection files
+## Local collection storage
 
-While the app is running locally, collection data is stored in two places:
+### Browser and desktop launcher
+
+While the app is running through the local launcher, collection data is stored in two places:
 
 - IndexedDB keeps the responsive browser working copy;
 - `.save-slot-data/library.json` inside the repository is the persistent project copy.
 
 Before each file replacement, the previous project copy is preserved as `.save-slot-data/library.backup.json`. The entire `.save-slot-data` directory is ignored by Git so personal collection data is not committed accidentally.
 
-The personal collection file and public catalogue cache are separate systems. Catalogue caching never stores personal ratings, notes, prices or account data.
+### PWA and Capacitor
+
+An installed PWA or native Capacitor build keeps the collection in device-local IndexedDB. It does not attempt to access `127.0.0.1:8791`. JSON export/import remains the current manual backup path; account synchronization is not implemented.
+
+The personal collection and public catalogue cache are separate systems. Catalogue caching never stores personal ratings, notes, prices or account data.
 
 ## Workspace
 
@@ -78,14 +90,14 @@ The personal collection file and public catalogue cache are separate systems. Ca
 apps/
   web/          SvelteKit PWA
   api/          Cloudflare Worker aggregation API
-  mobile/       Capacitor wrapper, added after the PWA is stable
+  mobile/       Capacitor Android wrapper
 packages/
   domain/       Entities, validation and business rules
   providers/    Catalogue and media provider adapters
   storage/      IndexedDB, project-file mirroring and export/import
   ui/           Shared UI contracts and stable reveal behavior
   i18n/         Interface languages and translation contracts
-  ps1-scene/    Rigid PS1 slot and cartridge scene contracts
+  ps1-scene/    Three.js slot renderer and rigid scene math
 scripts/
   library-cache-server.mjs   Local project-folder collection service
 ```
@@ -103,9 +115,9 @@ START_SAVE_SLOT.bat
 No separate Node.js, npm, pnpm or Corepack installation is required. On the first launch, or after a runtime update, the launcher automatically:
 
 - detects the Windows processor architecture;
-- downloads portable Node.js 24.18.0 LTS into the local `.runtime` directory;
+- downloads portable Node.js 24.18.0 into the local `.runtime` directory;
 - verifies the downloaded archive using the official SHA-256 list;
-- installs the required pnpm version into `.runtime`;
+- installs pnpm 10.14.0 into `.runtime`;
 - creates `apps/web/.env` and `apps/api/.dev.vars` when missing;
 - installs, updates or rebuilds project dependencies for the active runtime;
 - starts the project library cache, Worker and web application;
@@ -128,8 +140,8 @@ This launcher expects Node.js 24 or newer. Press `Ctrl+C` to stop all three proc
 
 Manual development requires:
 
-- Node.js 24 or newer; the pinned local/CI version is 24.18.0 LTS;
-- pnpm 10.14.
+- Node.js 24 or newer; the pinned local/CI version is 24.18.0;
+- pnpm 10.14.0.
 
 ```bash
 pnpm install
@@ -145,7 +157,7 @@ pnpm dev:api
 pnpm dev
 ```
 
-Without `VITE_SAVE_SLOT_API_URL`, the web app deliberately falls back to the local representative catalogue.
+Without `VITE_SAVE_SLOT_API_URL`, the web app deliberately falls back to the representative offline catalogue.
 
 Useful local diagnostics:
 
@@ -163,9 +175,42 @@ pnpm lint
 pnpm check
 pnpm test
 pnpm build
+pnpm test:e2e
 ```
 
 No API credentials may be placed in client-side variables. `VITE_SAVE_SLOT_API_URL` is only the public address of the aggregation API. Real provider credentials belong in Worker secrets or local `apps/api/.dev.vars` and must never be committed.
+
+## Static subpath build
+
+For hosting below a domain subpath, set a base path without a trailing slash:
+
+```bash
+SAVE_SLOT_BASE_PATH=/Save-Slot pnpm --filter @save-slot/web build
+```
+
+The manifest, icon, generated chunks and service-worker shell fallback use the same configured base.
+
+## Android wrapper
+
+Prepare or synchronize the Android project:
+
+```bash
+pnpm mobile:android:prepare
+```
+
+Open Android Studio:
+
+```bash
+pnpm mobile:android:open
+```
+
+Run on a connected device or emulator:
+
+```bash
+pnpm mobile:android:run
+```
+
+The first prepare command generates `apps/mobile/android` when missing. The native project, final application ID, icons, SDK versions and signing configuration still require workstation review before distribution.
 
 ## Repository documentation
 
