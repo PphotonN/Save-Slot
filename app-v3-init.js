@@ -1,2 +1,6 @@
-async function init(){const motionStyle=document.createElement("style");motionStyle.textContent=".reduce-motion *{scroll-behavior:auto!important;animation:none!important;transition:none!important}";document.head.append(motionStyle);await loadState();bindEvents();const prefersReduced=window.matchMedia?.("(prefers-reduced-motion: reduce)")?.matches;document.documentElement.classList.toggle("reduce-motion",state.settings.reduceMotion||prefersReduced);updateSavedCount();renderGames();setSourceState("ready","WIKIDATA ГОТОВА");if("serviceWorker"in navigator&&location.protocol.startsWith("http"))navigator.serviceWorker.register("./sw.js").catch(()=>{})}
-init().catch(error=>{console.error(error);setSourceState("error","ПОМИЛКА ЗАПУСКУ");setFeedback("Save Slot не вдалося запустити.","error")});
+const v4Script=document.createElement("script");
+v4Script.src="./app-v4.js";
+v4Script.defer=true;
+v4Script.onload=()=>initV4().catch(error=>{console.error(error);setSourceState("error","ПОМИЛКА ЗАПУСКУ");setFeedback("Save Slot не вдалося запустити.","error")});
+v4Script.onerror=()=>{setSourceState("error","ПОМИЛКА ЗАПУСКУ");setFeedback("Не вдалося завантажити оновлення Save Slot.","error")};
+document.head.append(v4Script);
