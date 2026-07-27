@@ -1,0 +1,20 @@
+{
+  "name": "@save-slot/mobile",
+  "version": "1.0.0-alpha.1",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "check": "tsc --noEmit",
+    "android:prepare": "node scripts/prepare-android.mjs",
+    "android:open": "pnpm android:prepare && cap open android",
+    "android:run": "pnpm android:prepare && cap run android"
+  },
+  "dependencies": {
+    "@capacitor/android": "8.4.2",
+    "@capacitor/core": "8.4.2"
+  },
+  "devDependencies": {
+    "@capacitor/cli": "8.4.2",
+    "typescript": "catalog:"
+  }
+}
