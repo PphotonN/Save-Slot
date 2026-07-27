@@ -17,22 +17,29 @@ $NpmCmd = Join-Path $NodeRoot 'npm.cmd'
 $PnpmCmd = Join-Path $PnpmRoot 'pnpm.cmd'
 
 function Write-Step([string]$Message) {
-  Write-Host "[SETUP] $Message" -ForegroundColor Cyan
+  Write-Host ('[SETUP] ' + $Message) -ForegroundColor Cyan
 }
 
 function Get-NodeArchitecture {
-  $architecture = [System.Runtime.InteropServices.RuntimeInformation]::OSArchitecture.ToString()
-  switch ($architecture) {
-    'X64' { return 'x64' }
-    'Arm64' { return 'arm64' }
-    default { throw "Непідтримувана архітектура Windows: $architecture. Потрібна 64-бітна Windows." }
+  $architecture = $env:PROCESSOR_ARCHITEW6432
+  if ([string]::IsNullOrWhiteSpace($architecture)) {
+    $architecture = $env:PROCESSOR_ARCHITECTURE
+  }
+
+  switch -Regex ($architecture) {
+    '^ARM64$' { return 'arm64' }
+    '^(AMD64|x86_64)$' { return 'x64' }
+    default { throw ('Unsupported Windows architecture: ' + $architecture) }
   }
 }
 
 function Test-ExactVersion([string]$Executable, [string]$ExpectedVersion) {
-  if (-not (Test-Path -LiteralPath $Executable)) { return $false }
+  if (-not (Test-Path -LiteralPath $Executable)) {
+    return $false
+  }
+
   try {
-    $actual = (& $Executable --version 2>$null).Trim().TrimStart('v')
+    $actual = (& $Executable --version 2>$null).Trim().TrimStart([char]'v')
     return $actual -eq $ExpectedVersion
   } catch {
     return $false
@@ -41,41 +48,43 @@ function Test-ExactVersion([string]$Executable, [string]$ExpectedVersion) {
 
 function Install-PortableNode {
   $nodeArchitecture = Get-NodeArchitecture
-  $archiveName = "node-v$NodeVersion-win-$nodeArchitecture.zip"
+  $archiveName = 'node-v' + $NodeVersion + '-win-' + $nodeArchitecture + '.zip'
   $archivePath = Join-Path $RuntimeRoot $archiveName
   $extractRoot = Join-Path $RuntimeRoot 'node-extract'
-  $downloadBase = "https://nodejs.org/dist/v$NodeVersion"
+  $downloadBase = 'https://nodejs.org/dist/v' + $NodeVersion
 
-  Write-Step "Завантажую portable Node.js $NodeVersion для $nodeArchitecture..."
+  Write-Step ('Downloading portable Node.js ' + $NodeVersion + ' for ' + $nodeArchitecture + '...')
   New-Item -ItemType Directory -Force -Path $RuntimeRoot | Out-Null
   Remove-Item -Recurse -Force -ErrorAction SilentlyContinue $extractRoot
   Remove-Item -Recurse -Force -ErrorAction SilentlyContinue $NodeRoot
+  Remove-Item -Force -ErrorAction SilentlyContinue $archivePath
 
-  Invoke-WebRequest -UseBasicParsing -Uri "$downloadBase/$archiveName" -OutFile $archivePath
+  Invoke-WebRequest -UseBasicParsing -Uri ($downloadBase + '/' + $archiveName) -OutFile $archivePath
 
-  Write-Step 'Перевіряю контрольну суму Node.js...'
-  $checksumDocument = (Invoke-WebRequest -UseBasicParsing -Uri "$downloadBase/SHASUMS256.txt").Content
-  $checksumLine = ($checksumDocument -split "`n" | Where-Object {
-    $_ -match "\s+$([regex]::Escape($archiveName))\s*$"
-  } | Select-Object -First 1)
+  Write-Step 'Verifying the official Node.js SHA-256 checksum...'
+  $checksumDocument = (Invoke-WebRequest -UseBasicParsing -Uri ($downloadBase + '/SHASUMS256.txt')).Content
+  $checksumPattern = '\s+' + [regex]::Escape($archiveName) + '\s*$'
+  $checksumLine = $checksumDocument -split "`n" | Where-Object {
+    $_ -match $checksumPattern
+  } | Select-Object -First 1
 
   if (-not $checksumLine) {
     Remove-Item -Force -ErrorAction SilentlyContinue $archivePath
-    throw "Не вдалося знайти SHA-256 для $archiveName."
+    throw ('Unable to locate SHA-256 for ' + $archiveName + '.')
   }
 
   $expectedHash = (($checksumLine.Trim() -split '\s+')[0]).ToLowerInvariant()
   $actualHash = (Get-FileHash -Algorithm SHA256 -LiteralPath $archivePath).Hash.ToLowerInvariant()
   if ($actualHash -ne $expectedHash) {
     Remove-Item -Force -ErrorAction SilentlyContinue $archivePath
-    throw 'Контрольна сума Node.js не збігається. Завантажений файл видалено.'
+    throw 'The Node.js SHA-256 checksum does not match. The downloaded file was removed.'
   }
 
-  Write-Step 'Розпаковую локальний Node.js...'
+  Write-Step 'Extracting portable Node.js...'
   Expand-Archive -LiteralPath $archivePath -DestinationPath $extractRoot -Force
-  $extractedDirectory = Join-Path $extractRoot "node-v$NodeVersion-win-$nodeArchitecture"
+  $extractedDirectory = Join-Path $extractRoot ('node-v' + $NodeVersion + '-win-' + $nodeArchitecture)
   if (-not (Test-Path -LiteralPath $extractedDirectory)) {
-    throw 'Архів Node.js має неочікувану структуру.'
+    throw 'The Node.js archive has an unexpected directory structure.'
   }
 
   Move-Item -LiteralPath $extractedDirectory -Destination $NodeRoot
@@ -83,30 +92,33 @@ function Install-PortableNode {
   Remove-Item -Force -ErrorAction SilentlyContinue $archivePath
 
   if (-not (Test-ExactVersion $NodeExe $NodeVersion)) {
-    throw 'Portable Node.js встановлено некоректно.'
+    throw 'Portable Node.js validation failed after extraction.'
   }
 }
 
 function Install-LocalPnpm {
-  if (Test-ExactVersion $PnpmCmd $PnpmVersion) { return }
+  if (Test-ExactVersion $PnpmCmd $PnpmVersion) {
+    Write-Step ('Local pnpm ' + $PnpmVersion + ' is ready.')
+    return
+  }
 
-  Write-Step "Встановлюю локальний pnpm $PnpmVersion..."
+  Write-Step ('Installing local pnpm ' + $PnpmVersion + '...')
   Remove-Item -Recurse -Force -ErrorAction SilentlyContinue $PnpmRoot
   New-Item -ItemType Directory -Force -Path $PnpmRoot | Out-Null
 
   $previousPrefix = $env:npm_config_prefix
   $env:npm_config_prefix = $PnpmRoot
   try {
-    & $NpmCmd install --global "pnpm@$PnpmVersion" --no-fund --no-audit
+    & $NpmCmd install --global ('pnpm@' + $PnpmVersion) --no-fund --no-audit
     if ($LASTEXITCODE -ne 0) {
-      throw "npm завершив установлення pnpm з кодом $LASTEXITCODE."
+      throw ('npm failed to install pnpm. Exit code: ' + $LASTEXITCODE)
     }
   } finally {
     $env:npm_config_prefix = $previousPrefix
   }
 
   if (-not (Test-ExactVersion $PnpmCmd $PnpmVersion)) {
-    throw 'pnpm встановлено некоректно.'
+    throw 'Local pnpm validation failed after installation.'
   }
 }
 
@@ -116,24 +128,33 @@ function Ensure-LocalConfiguration {
   $apiExample = Join-Path $ProjectRoot 'apps\api\.dev.vars.example'
   $apiEnvironment = Join-Path $ProjectRoot 'apps\api\.dev.vars'
 
+  if (-not (Test-Path -LiteralPath $webExample)) {
+    throw 'Missing apps\web\.env.example.'
+  }
+  if (-not (Test-Path -LiteralPath $apiExample)) {
+    throw 'Missing apps\api\.dev.vars.example.'
+  }
+
   if (-not (Test-Path -LiteralPath $webEnvironment)) {
-    Write-Step 'Створюю apps\web\.env...'
+    Write-Step 'Creating apps\web\.env...'
     Copy-Item -LiteralPath $webExample -Destination $webEnvironment
   }
+
   if (-not (Test-Path -LiteralPath $apiEnvironment)) {
-    Write-Step 'Створюю apps\api\.dev.vars...'
+    Write-Step 'Creating apps\api\.dev.vars...'
     Copy-Item -LiteralPath $apiExample -Destination $apiEnvironment
   }
 }
 
 function Install-ProjectDependencies {
-  Write-Step 'Перевіряю та встановлюю залежності Save Slot...'
-  $env:PATH = "$NodeRoot;$PnpmRoot;$env:PATH"
+  Write-Step 'Installing or updating Save Slot dependencies...'
+  $env:Path = $NodeRoot + ';' + $PnpmRoot + ';' + $env:Path
+
   Push-Location $ProjectRoot
   try {
     & $PnpmCmd install --prefer-offline --frozen-lockfile=false
     if ($LASTEXITCODE -ne 0) {
-      throw "pnpm install завершився з кодом $LASTEXITCODE."
+      throw ('pnpm install failed. Exit code: ' + $LASTEXITCODE)
     }
   } finally {
     Pop-Location
@@ -146,22 +167,22 @@ try {
   if (-not (Test-ExactVersion $NodeExe $NodeVersion)) {
     Install-PortableNode
   } else {
-    Write-Step "Локальний Node.js $NodeVersion уже готовий."
+    Write-Step ('Local Node.js ' + $NodeVersion + ' is ready.')
   }
 
   if (-not (Test-Path -LiteralPath $NpmCmd)) {
-    throw 'У portable Node.js відсутній npm.cmd.'
+    throw 'npm.cmd is missing from the portable Node.js runtime.'
   }
 
   Install-LocalPnpm
   Ensure-LocalConfiguration
   Install-ProjectDependencies
 
-  Write-Host '[READY] Локальне середовище Save Slot готове.' -ForegroundColor Green
+  Write-Host '[READY] Save Slot local environment is ready.' -ForegroundColor Green
   exit 0
 } catch {
   Write-Host ''
-  Write-Host "[ERROR] $($_.Exception.Message)" -ForegroundColor Red
-  Write-Host 'Перший запуск потребує доступу до Інтернету. Права адміністратора не потрібні.' -ForegroundColor Yellow
+  Write-Host ('[ERROR] ' + $_.Exception.Message) -ForegroundColor Red
+  Write-Host 'The first launch requires Internet access. Administrator rights are not required.' -ForegroundColor Yellow
   exit 1
 }
