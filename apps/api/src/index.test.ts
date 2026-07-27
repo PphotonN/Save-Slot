@@ -51,4 +51,37 @@ describe('Save Slot API detail cache', () => {
     expect(cacheStatus.stats.writes).toBeGreaterThan(0);
     expect(cacheStatus.backends).toContain('memory');
   });
+
+  it('allows public read access from Capacitor and browser origins when configured with wildcard CORS', async () => {
+    const context = new TestContext();
+    for (const origin of ['https://localhost', 'capacitor://localhost', 'https://example.com']) {
+      const response = await worker.fetch(
+        new Request('https://api.example.test/health', {
+          headers: { Origin: origin },
+        }),
+        { ALLOWED_ORIGIN: '*' },
+        context,
+      );
+      expect(response.status).toBe(200);
+      expect(response.headers.get('Access-Control-Allow-Origin')).toBe('*');
+      expect(response.headers.get('Vary')).toBe('Origin');
+    }
+  });
+
+  it('returns matching CORS headers for preflight requests', async () => {
+    const response = await worker.fetch(
+      new Request('https://api.example.test/v1/search', {
+        method: 'OPTIONS',
+        headers: {
+          Origin: 'https://localhost',
+          'Access-Control-Request-Method': 'GET',
+        },
+      }),
+      { ALLOWED_ORIGIN: '*' },
+      new TestContext(),
+    );
+    expect(response.status).toBe(204);
+    expect(response.headers.get('Access-Control-Allow-Origin')).toBe('*');
+    expect(response.headers.get('Access-Control-Allow-Methods')).toContain('GET');
+  });
 });
