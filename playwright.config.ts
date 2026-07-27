@@ -56,5 +56,9 @@ export default defineConfig({
     timeout: 180_000,
     stdout: 'pipe',
     stderr: 'pipe',
+    env: {
+      VITE_SAVE_SLOT_API_URL: '',
+      SAVE_SLOT_BASE_PATH: '',
+    },
   },
 });
