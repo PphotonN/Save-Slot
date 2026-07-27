@@ -2,7 +2,7 @@
 
 ## Current milestone
 
-The repository contains a functional private alpha of the rewritten application. It now validates the new architecture, live online search, release-specific media, cached detail lookup, project-folder collection persistence and an editable personal library without publishing a public build.
+The repository contains a functional private alpha of the rewritten application. It validates live online search, bounded paging, search suggestions, release-specific media, cached detail lookup, project-folder collection persistence and an editable personal library without publishing a public build.
 
 ## Implemented
 
@@ -32,6 +32,10 @@ The repository contains a functional private alpha of the rewritten application.
 
 - random discovery loads on every fresh application start;
 - submitted search uses the aggregation API when configured and an offline fixture fallback otherwise;
+- search suggestions appear after a short debounce and stale requests are cancelled;
+- suggestions show title, available platform names and a short description when present;
+- search initially loads 18 games and can append later pages without clearing accepted cards;
+- the result cursor resets safely after changing platform or sorting;
 - platform filtering and sorting are independent;
 - sorting changes only result order;
 - cards and cartridge rows fill progressively from left to right;
@@ -66,13 +70,14 @@ The repository contains a functional private alpha of the rewritten application.
 - module-local memory cache is always available;
 - Cache API is used when the Worker environment provides it;
 - an optional `CATALOG_CACHE` KV-compatible binding can provide durable production storage;
-- normalized search pages are cached for six hours;
-- sorting is not part of the cache key and remains independent;
+- normalized search pools are cached for six hours;
+- suggestion results are cached for 12 hours;
+- sorting, page size and cursor are not part of the search-pool cache key;
 - game and release details are cached for 30 days;
 - discovery pages remain varied but their individual game/release details are retained;
 - cached detail values are validated through canonical Zod schemas;
 - invalid cached detail values are removed;
-- `/v1/cache` exposes non-sensitive cache diagnostics;
+- `/v1/cache` exposes non-sensitive cache diagnostics and the current search-pool limit;
 - application settings display active cache layers and process-local hit/miss/write counters.
 
 ### Catalogue providers
@@ -110,12 +115,13 @@ The repository contains a functional private alpha of the rewritten application.
 - `/health`;
 - `/v1/providers`;
 - `/v1/cache`;
+- `/v1/suggestions`;
 - `/v1/search`;
 - `/v1/discovery`;
 - `/v1/games/:id`;
 - `/v1/releases/:id`.
 
-Search and discovery use Wikidata as the main catalogue source, Libretro or Steam as release media enrichers, and representative fixtures as a controlled fallback. Previously discovered online games and releases can now be reopened through stable cached detail routes.
+Search and discovery use Wikidata as the main catalogue source, Libretro or Steam as release media enrichers, and representative fixtures as a controlled fallback. Search paging currently slices a stable normalized pool of up to 40 games per query. Previously discovered online games and releases can be reopened through cached detail routes.
 
 ## Fixture coverage
 
@@ -140,6 +146,8 @@ Fixtures remain useful for deterministic testing, offline development and provid
 - search finds a game without any sorting interaction;
 - every sorting mode preserves the same visible result set;
 - platform filtering happens independently of sorting;
+- fixture paging returns distinct pages and an accurate total;
+- the provider aggregator preserves cursor and total fields;
 - Windows, PlayStation and handheld platform labels normalize consistently;
 - Wikidata responses normalize into game/release records without network access;
 - Libretro returns only a successfully verified platform box art asset;
@@ -152,6 +160,9 @@ Fixtures remain useful for deterministic testing, offline development and provid
 
 ## Known limitations
 
+- search paging is bounded to the current normalized pool and is not yet unbounded provider continuation;
+- suggestions currently perform normalized catalogue lookup rather than a lighter dedicated title-only provider request;
+- first-time server-side rating sorting can only use ratings already available before the current page is enriched;
 - IGDB, MobyGames and RAWG are not connected pending credentials and terms review;
 - optional KV is not configured in the repository and must remain environment-specific;
 - Libretro lookup still relies on title matching and needs more canonical external IDs;
@@ -169,10 +180,10 @@ Fixtures remain useful for deterministic testing, offline development and provid
 
 ## Next implementation milestone
 
-1. Add search suggestions and cursor/page loading without remounting existing cards.
-2. Expand Libretro matching with provider IDs and safer request fallback behavior.
-3. Add more screenshot sources for console and retro releases.
-4. Add custom lists, wishlist/backlog presets and platform grouping.
+1. Expand Libretro matching with provider IDs and safer request fallback behavior.
+2. Add more screenshot sources for console and retro releases.
+3. Add custom lists, wishlist/backlog presets and platform grouping.
+4. Add physical copy condition fields and custom cover overrides.
 5. Replace remaining inline UI strings with localization keys.
 6. Add Playwright desktop and smartphone acceptance tests.
 7. Implement the actual isolated Three.js PS1 slot scene.
