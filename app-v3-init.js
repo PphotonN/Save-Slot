@@ -1,0 +1,2 @@
+async function init(){await loadState();bindEvents();document.documentElement.classList.toggle("reduce-motion",state.settings.reduceMotion);updateSavedCount();renderGames();setSourceState("ready","WIKIDATA ГОТОВА");if("serviceWorker"in navigator&&location.protocol.startsWith("http"))navigator.serviceWorker.register("./sw.js").catch(()=>{})}
+init().catch(error=>{console.error(error);setSourceState("error","ПОМИЛКА ЗАПУСКУ");setFeedback("Save Slot не вдалося запустити.","error")});
