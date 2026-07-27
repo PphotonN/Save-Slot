@@ -1,0 +1,19 @@
+.save-slot-v10 .deck-empty-v10 .deck-copy-v6{min-height:0;align-content:start}
+.save-slot-v10 .deck-empty-v10 .deck-toolbar-v6{margin-bottom:0}
+.save-slot-v10 .deck-empty-v10 .slot-column-v6{grid-column:1}
+.save-slot-v10 .deck-empty-v10 .deck-copy-v6{grid-column:2}
+.save-slot-v10 .deck-empty-v10 .deck-facts-v8,
+.save-slot-v10 .deck-empty-v10 .deck-description-v6,
+.save-slot-v10 .deck-empty-v10 .deck-meta-v6,
+.save-slot-v10 .deck-empty-v10 .deck-kicker-v6,
+.save-slot-v10 .deck-empty-v10 .deck-game-actions-v6,
+.save-slot-v10 .deck-empty-v10 .deck-copy-v6>h2{display:none!important}
+.save-slot-v10 .rating-state{display:none!important}
+.save-slot-v10 .quick-actions{align-items:center}
+.save-slot-v10 .deck-facts-v8{grid-template-columns:repeat(4,minmax(0,1fr))}
+.save-slot-v10 .deck-description-v6{max-width:1050px;font-size:1rem;line-height:1.58}
+.save-slot-v10 .deck-header-v8 .command-deck-v6{min-height:310px}
+.save-slot-v10 .deck-empty-v10 .command-deck-v6{min-height:310px}
+.save-slot-v10 .deck-empty-v10 .slot-bay-v6{transform:scale(1.04)}
+@media(max-width:1000px){.save-slot-v10 .deck-facts-v8{grid-template-columns:repeat(2,minmax(0,1fr))}}
+@media(max-width:700px){.save-slot-v10 .deck-empty-v10 .command-deck-v6{min-height:174px}.save-slot-v10 .deck-facts-v8{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:.35rem}.save-slot-v10 .deck-facts-v8>div{padding:.45rem}.save-slot-v10 .deck-facts-v8 span{font-size:.32rem}.save-slot-v10 .deck-facts-v8 strong{font-size:.6rem}}
