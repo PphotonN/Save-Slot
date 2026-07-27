@@ -21,34 +21,42 @@
   let target: HTMLDivElement;
   let controller = $state<ThreeSlotSceneController | null>(null);
   let rendererState = $state<'loading' | 'ready' | 'fallback'>('loading');
-  let operation = 0;
+  let requestedOperation = 0;
+  let synchronizationQueue: Promise<void> = Promise.resolve();
 
-  async function synchronize(): Promise<void> {
-    const activeController = controller;
-    if (!activeController) return;
-    const currentOperation = ++operation;
-    activeController.setTextureOptions(textureOptions);
-    try {
-      if (releaseId && coverUrl) {
-        await activeController.insert(releaseId, coverUrl);
-      } else {
-        await activeController.eject();
-      }
-      if (currentOperation === operation) rendererState = 'ready';
-    } catch (error) {
-      if (currentOperation !== operation) return;
-      console.warn('[Save Slot] Three.js slot scene fell back to CSS:', error);
-      rendererState = 'fallback';
-      activeController.destroy();
-      controller = null;
-    }
+  function scheduleSynchronization(): void {
+    const operation = ++requestedOperation;
+    rendererState = controller ? 'loading' : rendererState;
+    synchronizationQueue = synchronizationQueue
+      .catch(() => undefined)
+      .then(async () => {
+        if (operation !== requestedOperation) return;
+        const activeController = controller;
+        if (!activeController) return;
+        activeController.setTextureOptions(textureOptions);
+        try {
+          if (releaseId && coverUrl) {
+            await activeController.insert(releaseId, coverUrl);
+          } else {
+            await activeController.eject();
+          }
+          if (operation === requestedOperation) rendererState = 'ready';
+        } catch (error) {
+          if (operation !== requestedOperation) return;
+          console.warn('[Save Slot] Three.js slot scene fell back to CSS:', error);
+          rendererState = 'fallback';
+          activeController.destroy();
+          controller = null;
+        }
+      });
   }
 
   $effect(() => {
     releaseId;
     coverUrl;
     textureOptions;
-    if (controller) void synchronize();
+    controller;
+    if (controller) scheduleSynchronization();
   });
 
   onMount(() => {
@@ -64,7 +72,6 @@
           return;
         }
         controller = instance;
-        await synchronize();
       } catch (error) {
         if (disposed) return;
         console.warn('[Save Slot] WebGL slot renderer unavailable:', error);
@@ -74,7 +81,7 @@
 
     return () => {
       disposed = true;
-      operation += 1;
+      requestedOperation += 1;
       controller?.destroy();
       controller = null;
     };
