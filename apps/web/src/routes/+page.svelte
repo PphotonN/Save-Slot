@@ -20,7 +20,7 @@
   import CollectionPanel from '$lib/components/CollectionPanel.svelte';
   import GameCard from '$lib/components/GameCard.svelte';
   import SlotPanel from '$lib/components/SlotPanel.svelte';
-  import { CatalogClient } from '$lib/catalog-client';
+  import { CatalogClient, type SearchSuggestion } from '$lib/catalog-client';
 
   type Tab = 'search' | 'collection' | 'discovery' | 'settings';
   type LibraryCacheState = 'loading' | 'ready' | 'saved' | 'unavailable' | 'error';
@@ -29,6 +29,8 @@
   let repository: CollectionRepository;
   let activeRequest: AbortController | null = null;
   let detailRequest: AbortController | null = null;
+  let suggestionRequest: AbortController | null = null;
+  let suggestionTimer: ReturnType<typeof setTimeout> | undefined;
 
   let activeTab = $state<Tab>('search');
   let query = $state('');
@@ -36,8 +38,13 @@
   let sort = $state<SearchSort>('relevance');
   let filtersOpen = $state(false);
   let loading = $state(false);
+  let loadingMore = $state(false);
   let statusText = $state('Підготовка локальної колекції…');
   let results = $state<SearchResult[]>([]);
+  let nextCursor = $state<string | null>(null);
+  let totalSearchResults = $state(0);
+  let suggestions = $state<SearchSuggestion[]>([]);
+  let suggestionsOpen = $state(false);
   let selected = $state<SearchResult | null>(null);
   let entries = $state<CollectionEntry[]>([]);
   let lists = $state<UserList[]>([]);
@@ -93,13 +100,81 @@
     });
   }
 
+  function mergeResultItems(current: SearchResult[], incoming: SearchResult[]): SearchResult[] {
+    const order = current.map((result) => result.game.id);
+    const map = new Map(current.map((result) => [result.game.id, result]));
+    for (const item of incoming) {
+      const existing = map.get(item.game.id);
+      if (!existing) {
+        map.set(item.game.id, item);
+        order.push(item.game.id);
+        continue;
+      }
+      const releases = new Map(
+        [...existing.releases, ...item.releases].map((release) => [release.id, release]),
+      );
+      map.set(item.game.id, {
+        ...existing,
+        game: { ...item.game, releaseIds: [...releases.keys()] },
+        releases: [...releases.values()],
+        relevance: Math.max(existing.relevance, item.relevance),
+        providers: [...new Set([...existing.providers, ...item.providers])],
+      });
+    }
+    return order.map((id) => map.get(id)).filter((item): item is SearchResult => Boolean(item));
+  }
+
   async function reveal(items: SearchResult[], signal: AbortSignal): Promise<void> {
     results = [];
     for (const item of items) {
       signal.throwIfAborted();
-      results = [...results, item];
+      results = mergeResultItems(results, [item]);
       await wait(34, signal);
     }
+  }
+
+  async function appendReveal(items: SearchResult[], signal: AbortSignal): Promise<void> {
+    for (const item of items) {
+      signal.throwIfAborted();
+      results = mergeResultItems(results, [item]);
+      await wait(34, signal);
+    }
+  }
+
+  function closeSuggestions(): void {
+    suggestionsOpen = false;
+    suggestions = [];
+    suggestionRequest?.abort();
+  }
+
+  function scheduleSuggestions(): void {
+    if (suggestionTimer) clearTimeout(suggestionTimer);
+    suggestionRequest?.abort();
+    const value = query.trim();
+    if (value.length < 2) {
+      suggestions = [];
+      suggestionsOpen = false;
+      return;
+    }
+
+    suggestionTimer = setTimeout(() => {
+      const request = new AbortController();
+      suggestionRequest = request;
+      void (async () => {
+        try {
+          suggestions = await client.suggestions(value, locale, 6, request.signal);
+          suggestionsOpen = suggestions.length > 0 && query.trim() === value;
+        } catch (error) {
+          if (!request.signal.aborted) console.warn('[Save Slot] Suggestions failed:', error);
+        }
+      })();
+    }, 260);
+  }
+
+  function chooseSuggestion(suggestion: SearchSuggestion): void {
+    query = suggestion.title;
+    closeSuggestions();
+    void runSearch();
   }
 
   async function loadCollection(): Promise<void> {
@@ -117,14 +192,18 @@
 
   async function loadDiscovery(): Promise<void> {
     activeRequest?.abort();
+    closeSuggestions();
     const request = new AbortController();
     activeRequest = request;
     loading = true;
+    nextCursor = null;
+    totalSearchResults = 0;
     statusText = 'Формую нову випадкову кросплатформну добірку…';
     selected = null;
     try {
       const items = await client.discovery(36, request.signal);
       await reveal(items, request.signal);
+      totalSearchResults = items.length;
       statusText = `Готово: ${items.length} ігор, ${items.flatMap((item) => item.releases).length} релізів.`;
     } catch (error) {
       if (!request.signal.aborted) {
@@ -136,27 +215,36 @@
   }
 
   async function runSearch(): Promise<void> {
+    if (!query.trim()) {
+      await loadDiscovery();
+      return;
+    }
     activeRequest?.abort();
+    closeSuggestions();
     const request = new AbortController();
     activeRequest = request;
     loading = true;
+    nextCursor = null;
+    totalSearchResults = 0;
     selected = null;
-    statusText = query.trim() ? `Шукаю «${query.trim()}»…` : 'Показую доступні релізи…';
+    statusText = `Шукаю «${query.trim()}»…`;
     try {
-      const items = await client.search(
+      const page = await client.searchPage(
         {
           query: query.trim(),
           locale,
-          limit: 60,
+          limit: 18,
           ...(platformId === 'all' ? {} : { platformId }),
         },
         sort,
         request.signal,
       );
-      await reveal(items, request.signal);
-      const releaseCount = items.flatMap((item) => item.releases).length;
-      statusText = items.length
-        ? `Знайдено ${items.length} ігор і ${releaseCount} платформних релізів. Сортування змінює лише порядок.`
+      await reveal(page.items, request.signal);
+      nextCursor = page.nextCursor ?? null;
+      totalSearchResults = page.total;
+      const releaseCount = page.items.flatMap((item) => item.releases).length;
+      statusText = page.items.length
+        ? `Показано ${results.length} із ${page.total} ігор, ${releaseCount} платформних релізів.`
         : 'За поточним запитом нічого не знайдено.';
     } catch (error) {
       if (!request.signal.aborted) {
@@ -165,6 +253,48 @@
     } finally {
       if (activeRequest === request) loading = false;
     }
+  }
+
+  async function loadMore(): Promise<void> {
+    if (!nextCursor || loadingMore || !query.trim()) return;
+    const request = new AbortController();
+    activeRequest?.abort();
+    activeRequest = request;
+    loadingMore = true;
+    statusText = 'Дозавантажую наступні результати…';
+    try {
+      const page = await client.searchPage(
+        {
+          query: query.trim(),
+          locale,
+          cursor: nextCursor,
+          limit: 18,
+          ...(platformId === 'all' ? {} : { platformId }),
+        },
+        sort,
+        request.signal,
+      );
+      await appendReveal(page.items, request.signal);
+      nextCursor = page.nextCursor ?? null;
+      totalSearchResults = Math.max(totalSearchResults, page.total);
+      statusText = `Показано ${results.length} із ${totalSearchResults} ігор.`;
+    } catch (error) {
+      if (!request.signal.aborted) {
+        statusText = error instanceof Error ? error.message : 'Не вдалося дозавантажити результати.';
+      }
+    } finally {
+      if (activeRequest === request) loadingMore = false;
+    }
+  }
+
+  function changePlatform(value: string): void {
+    platformId = value;
+    if (query.trim()) void runSearch();
+  }
+
+  function changeSort(value: SearchSort): void {
+    sort = value;
+    if (query.trim()) void runSearch();
   }
 
   function selectResult(result: SearchResult): void {
@@ -354,6 +484,8 @@
     return () => {
       activeRequest?.abort();
       detailRequest?.abort();
+      suggestionRequest?.abort();
+      if (suggestionTimer) clearTimeout(suggestionTimer);
       window.removeEventListener('save-slot-library-cache', handleLibraryCacheStatus);
     };
   });
@@ -396,10 +528,30 @@
             void runSearch();
           }}
         >
-          <label class="search-field">
-            <span>&gt;</span>
-            <input bind:value={query} placeholder="Назва гри, серія, розробник…" type="search" />
-          </label>
+          <div class="search-suggest-wrap">
+            <label class="search-field">
+              <span>&gt;</span>
+              <input
+                bind:value={query}
+                onblur={() => setTimeout(() => (suggestionsOpen = false), 140)}
+                onfocus={() => (suggestionsOpen = suggestions.length > 0)}
+                oninput={scheduleSuggestions}
+                placeholder="Назва гри, серія, розробник…"
+                type="search"
+              />
+            </label>
+            {#if suggestionsOpen && suggestions.length}
+              <div class="suggestion-menu">
+                {#each suggestions as suggestion (suggestion.id)}
+                  <button onmousedown={(event) => event.preventDefault()} onclick={() => chooseSuggestion(suggestion)} type="button">
+                    <strong>{suggestion.title}</strong>
+                    {#if suggestion.platforms.length}<span>{suggestion.platforms.join(' · ')}</span>{/if}
+                    {#if suggestion.description}<small>{suggestion.description}</small>{/if}
+                  </button>
+                {/each}
+              </div>
+            {/if}
+          </div>
           <button class="primary-button" disabled={loading} type="submit">ЗНАЙТИ</button>
         </form>
 
@@ -413,7 +565,7 @@
           {#if filtersOpen}
             <label>
               ПЛАТФОРМА
-              <select bind:value={platformId}>
+              <select onchange={(event) => changePlatform((event.currentTarget as HTMLSelectElement).value)} value={platformId}>
                 <option value="all">Усі платформи</option>
                 {#each platformOptions as platform}
                   <option value={platform.id}>{platform.name}</option>
@@ -422,7 +574,7 @@
             </label>
             <label>
               СОРТУВАННЯ
-              <select bind:value={sort}>
+              <select onchange={(event) => changeSort((event.currentTarget as HTMLSelectElement).value as SearchSort)} value={sort}>
                 <option value="relevance">Точність збігу</option>
                 <option value="rating">Рейтинг гравців</option>
                 <option value="votes">Кількість оцінок</option>
@@ -433,7 +585,7 @@
           {/if}
         </div>
 
-        <div class:loading class="search-status" aria-live="polite">
+        <div class:loading={loading || loadingMore} class="search-status" aria-live="polite">
           <span class="dot"></span>
           <span>{statusText}</span>
         </div>
@@ -462,6 +614,14 @@
               />
             {/each}
           </div>
+          {#if nextCursor && query.trim()}
+            <div class="load-more-row">
+              <button class="secondary-button" disabled={loadingMore} onclick={() => void loadMore()} type="button">
+                {loadingMore ? 'ЗАВАНТАЖЕННЯ…' : 'ПОКАЗАТИ ЩЕ'}
+              </button>
+              <span>{results.length} / {totalSearchResults} ІГОР</span>
+            </div>
+          {/if}
         {:else if !loading}
           <div class="empty-results">
             <strong>НІЧОГО НЕ ЗНАЙДЕНО</strong>
@@ -529,6 +689,79 @@
 </nav>
 
 <style>
+  .search-suggest-wrap {
+    position: relative;
+    min-width: 0;
+  }
+
+  .suggestion-menu {
+    position: absolute;
+    z-index: 180;
+    top: calc(100% + 5px);
+    right: 0;
+    left: 0;
+    display: grid;
+    max-height: min(58vh, 430px);
+    overflow-y: auto;
+    padding: 5px;
+    background: #070b0c;
+    border: 1px solid var(--line-strong);
+    box-shadow: 0 20px 55px rgba(0, 0, 0, 0.55);
+  }
+
+  .suggestion-menu button {
+    display: grid;
+    gap: 0.3rem;
+    padding: 0.72rem;
+    color: var(--text);
+    text-align: left;
+    background: transparent;
+    border: 0;
+    border-bottom: 1px solid var(--line);
+  }
+
+  .suggestion-menu button:last-child {
+    border-bottom: 0;
+  }
+
+  .suggestion-menu button:hover,
+  .suggestion-menu button:focus-visible {
+    background: var(--panel-raised);
+  }
+
+  .suggestion-menu strong {
+    font-size: 0.9rem;
+  }
+
+  .suggestion-menu span {
+    color: var(--accent-cool);
+    font: 0.38rem/1.3 var(--pixel-font);
+  }
+
+  .suggestion-menu small {
+    display: -webkit-box;
+    overflow: hidden;
+    color: var(--muted);
+    line-height: 1.35;
+    -webkit-box-orient: vertical;
+    -webkit-line-clamp: 2;
+  }
+
+  .load-more-row {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    gap: 0.8rem;
+    margin-top: 1.2rem;
+    padding: 1rem;
+    border-top: 1px solid var(--line);
+  }
+
+  .load-more-row span {
+    color: var(--muted);
+    font: 0.42rem/1.3 var(--pixel-font);
+  }
+
   .settings-panel {
     max-width: 850px;
   }
@@ -596,5 +829,19 @@
     display: flex;
     gap: 0.55rem;
     flex-wrap: wrap;
+  }
+
+  @media (max-width: 760px) {
+    .suggestion-menu {
+      position: fixed;
+      top: 210px;
+      right: 0.75rem;
+      left: 0.75rem;
+      max-height: 48vh;
+    }
+
+    .load-more-row {
+      flex-direction: column;
+    }
   }
 </style>
