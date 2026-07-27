@@ -53,14 +53,18 @@ const EJECTED_TRANSFORM: RigidTransform = {
 const LABEL_WIDTH = 1.72;
 const LABEL_HEIGHT = 2.18;
 
+function cloneTransform(transform: RigidTransform): RigidTransform {
+  return {
+    position: { ...transform.position },
+    rotation: { ...transform.rotation },
+    scale: transform.scale,
+  };
+}
+
 function cloneState(state: SlotSceneState): SlotSceneState {
   return {
     ...state,
-    transform: {
-      position: { ...state.transform.position },
-      rotation: { ...state.transform.rotation },
-      scale: state.transform.scale,
-    },
+    transform: cloneTransform(state.transform),
     texture: { ...state.texture },
   };
 }
@@ -91,7 +95,10 @@ export function supportsWebGL2(): boolean {
   if (typeof document === 'undefined') return false;
   try {
     const canvas = document.createElement('canvas');
-    return Boolean(canvas.getContext('webgl2', { failIfMajorPerformanceCaveat: true }));
+    const context = canvas.getContext('webgl2', { failIfMajorPerformanceCaveat: true });
+    if (!context) return false;
+    context.getExtension('WEBGL_lose_context')?.loseContext();
+    return true;
   } catch {
     return false;
   }
@@ -117,6 +124,7 @@ export class ThreeSlotSceneController implements SlotSceneController {
   private coverTexture: Texture | null = null;
   private animationFrame: number | null = null;
   private animationResolve: (() => void) | null = null;
+  private transitionVersion = 0;
   private mounted = false;
   private destroyed = false;
   private state: SlotSceneState;
@@ -200,7 +208,10 @@ export class ThreeSlotSceneController implements SlotSceneController {
     const body = new Mesh(new BoxGeometry(2.16, 2.72, 0.2, 1, 1, 1), cartridgeMaterial);
     this.cartridge.add(body);
 
-    const label = new Mesh(new PlaneGeometry(LABEL_WIDTH, LABEL_HEIGHT, 1, 1), this.labelMaterial);
+    const label = new Mesh(
+      new PlaneGeometry(LABEL_WIDTH, LABEL_HEIGHT, 1, 1),
+      this.labelMaterial,
+    );
     label.position.set(0, 0.08, 0.106);
     this.cartridge.add(label);
 
@@ -216,7 +227,9 @@ export class ThreeSlotSceneController implements SlotSceneController {
   async mount(target: HTMLElement): Promise<void> {
     if (this.destroyed) throw new Error('The Three.js slot scene has already been destroyed.');
     if (this.mounted) {
-      if (this.target !== target) throw new Error('The Three.js slot scene is already mounted elsewhere.');
+      if (this.target !== target) {
+        throw new Error('The Three.js slot scene is already mounted elsewhere.');
+      }
       return;
     }
     if (!supportsWebGL2()) throw new Error('WebGL 2 is unavailable.');
@@ -252,6 +265,7 @@ export class ThreeSlotSceneController implements SlotSceneController {
 
   async insert(releaseId: string, coverUrl: string): Promise<void> {
     this.assertMounted();
+    const transitionVersion = ++this.transitionVersion;
     this.cancelAnimation();
     this.cartridge.visible = true;
     this.state.insertedReleaseId = releaseId;
@@ -259,32 +273,45 @@ export class ThreeSlotSceneController implements SlotSceneController {
 
     try {
       const texture = await this.loadCoverTexture(coverUrl);
-      if (this.state.insertedReleaseId !== releaseId || this.destroyed) {
+      if (
+        transitionVersion !== this.transitionVersion ||
+        this.state.insertedReleaseId !== releaseId ||
+        this.destroyed
+      ) {
         texture.dispose();
         return;
       }
       this.setCoverTexture(texture);
     } catch {
-      if (this.state.insertedReleaseId === releaseId) {
-        this.setCoverTexture(this.createPlaceholderTexture(releaseId));
+      if (
+        transitionVersion !== this.transitionVersion ||
+        this.state.insertedReleaseId !== releaseId ||
+        this.destroyed
+      ) {
+        return;
       }
+      this.setCoverTexture(this.createPlaceholderTexture(releaseId));
     }
 
+    if (transitionVersion !== this.transitionVersion || this.destroyed) return;
     const start = this.state.reducedMotion ? INSERTED_TRANSFORM : EJECTED_TRANSFORM;
     this.applyTransform(start);
     await this.animate(start, INSERTED_TRANSFORM, this.state.reducedMotion ? 0 : 680, true);
-    this.state.transform = cloneState({ ...this.state, transform: INSERTED_TRANSFORM }).transform;
+    if (transitionVersion !== this.transitionVersion || this.destroyed) return;
+    this.state.transform = cloneTransform(INSERTED_TRANSFORM);
   }
 
   async eject(): Promise<void> {
     if (!this.mounted || this.destroyed) return;
+    const transitionVersion = ++this.transitionVersion;
     this.cancelAnimation();
-    const start = this.state.transform;
+    const start = cloneTransform(this.state.transform);
     await this.animate(start, EJECTED_TRANSFORM, this.state.reducedMotion ? 0 : 330, false);
+    if (transitionVersion !== this.transitionVersion || this.destroyed) return;
     this.cartridge.visible = false;
     this.state.insertedReleaseId = null;
     this.state.coverUrl = null;
-    this.state.transform = cloneState({ ...this.state, transform: EJECTED_TRANSFORM }).transform;
+    this.state.transform = cloneTransform(EJECTED_TRANSFORM);
     this.render();
   }
 
@@ -307,9 +334,12 @@ export class ThreeSlotSceneController implements SlotSceneController {
   destroy(): void {
     if (this.destroyed) return;
     this.destroyed = true;
+    this.transitionVersion += 1;
     this.cancelAnimation();
     this.resizeObserver?.disconnect();
     this.resizeObserver = null;
+
+    if (this.labelMaterial.map === this.coverTexture) this.labelMaterial.map = null;
     this.coverTexture?.dispose();
     this.coverTexture = null;
 
@@ -350,11 +380,7 @@ export class ThreeSlotSceneController implements SlotSceneController {
     this.cartridge.position.set(transform.position.x, transform.position.y, transform.position.z);
     this.cartridge.rotation.set(transform.rotation.x, transform.rotation.y, transform.rotation.z);
     this.cartridge.scale.setScalar(transform.scale);
-    this.state.transform = {
-      position: { ...transform.position },
-      rotation: { ...transform.rotation },
-      scale: transform.scale,
-    };
+    this.state.transform = cloneTransform(transform);
     this.render();
   }
 
@@ -442,12 +468,13 @@ export class ThreeSlotSceneController implements SlotSceneController {
     context.font = 'bold 20px monospace';
     context.textAlign = 'center';
     context.textBaseline = 'middle';
-    const initials = seed
-      .split(/[^a-zA-Z0-9]+/)
-      .filter(Boolean)
-      .slice(-2)
-      .map((part) => part[0]?.toLocaleUpperCase() ?? '')
-      .join('') || 'SS';
+    const initials =
+      seed
+        .split(/[^a-zA-Z0-9]+/)
+        .filter(Boolean)
+        .slice(-2)
+        .map((part) => part[0]?.toLocaleUpperCase() ?? '')
+        .join('') || 'SS';
     context.fillText(initials, canvas.width / 2, canvas.height / 2);
     const texture = new CanvasTexture(canvas);
     texture.colorSpace = SRGBColorSpace;
@@ -466,7 +493,9 @@ export class ThreeSlotSceneController implements SlotSceneController {
     this.target.dataset.pixelated = String(this.state.texture.pixelated);
     this.target.dataset.dither = String(this.state.texture.dither);
     this.target.dataset.crt = String(this.state.texture.crt);
-    this.renderer.domElement.style.imageRendering = this.state.texture.pixelated ? 'pixelated' : 'auto';
+    this.renderer.domElement.style.imageRendering = this.state.texture.pixelated
+      ? 'pixelated'
+      : 'auto';
   }
 
   private render(): void {
