@@ -42,6 +42,7 @@ The repository contains a functional private alpha of the rewritten application.
 - selecting a release inserts a rigid cartridge into the left slot;
 - multi-release games expose a platform/release selector in the slot;
 - overview, media, rating and source tabs are available for the active release;
+- Steam and matched Libretro screenshots are shown through the release media gallery;
 - screenshots open in a source-labelled lightbox;
 - opening a collection entry refreshes its game group through the cached game detail route;
 - IndexedDB keeps the active browser working copy;
@@ -97,9 +98,18 @@ The repository contains a functional private alpha of the rewritten application.
 #### Libretro
 
 - platform-to-playlist mapping for major retro, console and handheld systems;
-- title and regional filename variants;
-- verified `Named_Boxarts` lookup;
-- release/platform metadata retained on the resulting cover asset.
+- priority for an existing trusted Libretro source URL or source ID;
+- release-title, canonical-title and alias candidates;
+- safe punctuation, article and Roman/Arabic numeral variants;
+- release-region-prioritized filename suffixes;
+- strict `thumbnails.libretro.com` source URL allowlist;
+- bounded candidate count and request timeout;
+- `HEAD` validation with a ranged `GET` fallback when required;
+- positive and negative process-local probe caching;
+- verified `Named_Boxarts` cover lookup;
+- matching `Named_Snaps` screenshot lookup after cover verification;
+- matching `Named_Titles` title-screen lookup after cover verification;
+- release/platform/source metadata retained on every media asset.
 
 #### Steam
 
@@ -150,7 +160,11 @@ Fixtures remain useful for deterministic testing, offline development and provid
 - the provider aggregator preserves cursor and total fields;
 - Windows, PlayStation and handheld platform labels normalize consistently;
 - Wikidata responses normalize into game/release records without network access;
-- Libretro returns only a successfully verified platform box art asset;
+- Libretro source URLs are prioritized only after host/path validation;
+- Libretro falls back from unsupported HEAD to a bounded ranged GET;
+- repeated positive Libretro probes are reused from the in-process cache;
+- release titles and aliases participate in a bounded candidate set;
+- matching Libretro snapshots and optional title screens retain release/platform identity;
 - Steam enrichment returns box art, screenshot, official description and sourced player rating;
 - layered catalogue cache restores values through a KV-compatible binding;
 - fixture game and release routes populate and reuse the shared detail cache;
@@ -165,9 +179,9 @@ Fixtures remain useful for deterministic testing, offline development and provid
 - first-time server-side rating sorting can only use ratings already available before the current page is enriched;
 - IGDB, MobyGames and RAWG are not connected pending credentials and terms review;
 - optional KV is not configured in the repository and must remain environment-specific;
-- Libretro lookup still relies on title matching and needs more canonical external IDs;
+- Libretro still depends on known playlist naming and bounded filename candidates; it does not scan directories;
 - Wikimedia P18 may be general artwork rather than platform box art, so it remains unverified fallback media;
-- screenshot galleries currently depend mostly on Steam enrichment;
+- console screenshot coverage outside matching Libretro assets remains limited;
 - translation currently uses available localized descriptions rather than an external translation service;
 - the current slot is a rigid CSS prototype; the isolated Three.js renderer is still pending;
 - custom lists and platform grouping are not exposed in the collection interface yet;
@@ -180,11 +194,10 @@ Fixtures remain useful for deterministic testing, offline development and provid
 
 ## Next implementation milestone
 
-1. Expand Libretro matching with provider IDs and safer request fallback behavior.
-2. Add more screenshot sources for console and retro releases.
-3. Add custom lists, wishlist/backlog presets and platform grouping.
-4. Add physical copy condition fields and custom cover overrides.
-5. Replace remaining inline UI strings with localization keys.
-6. Add Playwright desktop and smartphone acceptance tests.
-7. Implement the actual isolated Three.js PS1 slot scene.
-8. Define optional encrypted or account-based synchronization for smartphone use.
+1. Add custom lists, wishlist/backlog presets and platform grouping.
+2. Add physical copy condition fields and custom cover overrides.
+3. Replace remaining inline UI strings with localization keys.
+4. Add Playwright desktop and smartphone acceptance tests.
+5. Implement the actual isolated Three.js PS1 slot scene.
+6. Add more non-Libretro screenshot sources where terms permit.
+7. Define optional encrypted or account-based synchronization for smartphone use.
