@@ -16,11 +16,12 @@
     locale: SupportedLocale;
     onToggleCollection: () => void;
     onRatingChange: (value: number | null) => void;
+    onReleaseChange: (releaseId: string) => void;
   }
 
   type DetailTab = 'overview' | 'media' | 'ratings' | 'sources';
 
-  let { selected, entry, locale, onToggleCollection, onRatingChange }: Props = $props();
+  let { selected, entry, locale, onToggleCollection, onRatingChange, onReleaseChange }: Props = $props();
   let useLocalizedDescription = $state(true);
   let activeTab = $state<DetailTab>('overview');
   let selectedScreenshot = $state<MediaAsset | null>(null);
@@ -127,6 +128,21 @@
         <h1>{selected.game.title}</h1>
         {#if release.edition}<span>{release.edition}</span>{/if}
       </header>
+
+      {#if selected.releases.length > 1}
+        <div class="release-selector" aria-label="Доступні платформні релізи">
+          {#each selected.releases as option (option.id)}
+            <button
+              class:active={option.id === release.id}
+              onclick={() => onReleaseChange(option.id)}
+              type="button"
+            >
+              <span>{option.platform.name}</span>
+              <small>{option.year ?? '—'}{option.edition ? ` · ${option.edition}` : ''}</small>
+            </button>
+          {/each}
+        </div>
+      {/if}
 
       <nav class="detail-tabs" aria-label="Розділи інформації про гру">
         <button class:active={activeTab === 'overview'} onclick={() => (activeTab = 'overview')} type="button">ОГЛЯД</button>
@@ -259,6 +275,11 @@
   .game-header p,.section-heading,dt,.rating-input span,.credits-block span { color: var(--accent-cool); font: .42rem/1.4 var(--pixel-font); }
   .game-header h1 { margin: .28rem 0; font-size: clamp(1.25rem,2.4vw,2rem); line-height: 1.08; }
   .game-header > span { color: var(--muted); font-size: .78rem; }
+  .release-selector { display: grid; grid-auto-flow: column; grid-auto-columns: minmax(125px,1fr); gap: .35rem; overflow-x: auto; padding-bottom: .15rem; }
+  .release-selector button { display: grid; gap: .2rem; min-width: 0; padding: .55rem; color: var(--muted-light); text-align: left; background: #0c1214; border: 1px solid var(--line); }
+  .release-selector button.active { color: #171402; background: var(--accent); border-color: var(--accent); }
+  .release-selector span { overflow: hidden; font: .35rem/1.3 var(--pixel-font); text-overflow: ellipsis; white-space: nowrap; }
+  .release-selector small { overflow: hidden; opacity: .78; text-overflow: ellipsis; white-space: nowrap; }
   .detail-tabs { display: grid; grid-template-columns: repeat(4,minmax(0,1fr)); gap: 2px; }
   .detail-tabs button { min-width: 0; padding: .58rem .25rem; overflow: hidden; color: var(--muted); font: .34rem/1.25 var(--pixel-font); text-overflow: ellipsis; background: var(--panel); border: 1px solid var(--line); }
   .detail-tabs button.active { color: #171402; background: var(--accent); border-color: var(--accent); }
