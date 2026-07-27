@@ -1,12 +1,42 @@
 import { fixtureSearchResults } from '@save-slot/domain/fixtures';
-import { FixtureProvider, sortSearchResults, type SearchSort } from '@save-slot/providers';
+import {
+  FixtureProvider,
+  searchWithFallback,
+  sortSearchResults,
+  type SearchPage,
+  type SearchSort,
+} from '@save-slot/providers';
+import { WikidataProvider } from '@save-slot/providers/wikidata';
 
 interface Env {
   ALLOWED_ORIGIN?: string;
 }
 
 const fixtureProvider = new FixtureProvider();
+const wikidataProvider = new WikidataProvider();
 const validSorts = new Set<SearchSort>(['relevance', 'title', 'year', 'rating', 'votes']);
+const discoverySeeds = [
+  'Metroid',
+  'Metal Gear',
+  'The Legend of Zelda',
+  'Castlevania',
+  'Resident Evil',
+  'Final Fantasy',
+  'Persona',
+  'Sonic the Hedgehog',
+  'Mario',
+  'Half-Life',
+  'Doom',
+  'Dragon Quest',
+  'Armored Core',
+  'Advance Wars',
+  'Shin Megami Tensei',
+  'Silent Hill',
+  'Mega Man',
+  'Gran Turismo',
+  'Halo',
+  'Yakuza',
+];
 
 function corsHeaders(request: Request, env: Env): Record<string, string> {
   const origin = request.headers.get('Origin');
@@ -46,6 +76,74 @@ function shuffled<T>(items: T[]): T[] {
   return result;
 }
 
+function mergePages(pages: SearchPage[]): SearchPage {
+  const items = new Map<string, SearchPage['items'][number]>();
+  for (const page of pages) {
+    for (const item of page.items) {
+      const existing = items.get(item.game.id);
+      if (!existing) {
+        items.set(item.game.id, item);
+        continue;
+      }
+      const releases = new Map(
+        [...existing.releases, ...item.releases].map((release) => [release.id, release]),
+      );
+      items.set(item.game.id, {
+        ...existing,
+        releases: [...releases.values()],
+        relevance: Math.max(existing.relevance, item.relevance),
+        providers: [...new Set([...existing.providers, ...item.providers])],
+      });
+    }
+  }
+  return {
+    items: [...items.values()],
+    providers: pages.flatMap((page) => page.providers),
+  };
+}
+
+async function searchCatalogue(
+  query: string,
+  locale: string,
+  platformId: string | undefined,
+  limit: number,
+  signal: AbortSignal,
+): Promise<SearchPage> {
+  const request = {
+    query,
+    locale,
+    limit,
+    ...(platformId ? { platformId } : {}),
+  };
+  const online = await searchWithFallback([wikidataProvider], request, signal);
+  if (online.items.length) return online;
+  const fallback = await fixtureProvider.search(request, signal);
+  return mergePages([online, fallback]);
+}
+
+async function discoveryCatalogue(
+  locale: string,
+  limit: number,
+  signal: AbortSignal,
+): Promise<SearchPage> {
+  const seeds = shuffled(discoverySeeds).slice(0, 3);
+  const settled = await Promise.allSettled(
+    seeds.map((seed) =>
+      wikidataProvider.search({ query: seed, locale, limit: Math.max(8, Math.ceil(limit / 2)) }, signal),
+    ),
+  );
+  const onlinePages = settled.flatMap((result) =>
+    result.status === 'fulfilled' ? [result.value] : [],
+  );
+  const online = mergePages(onlinePages);
+  if (online.items.length >= Math.min(limit, 8)) {
+    return { ...online, items: shuffled(online.items).slice(0, limit) };
+  }
+  const fallback = await fixtureProvider.search({ query: '', locale, limit }, signal);
+  const merged = mergePages([online, fallback]);
+  return { ...merged, items: shuffled(merged.items).slice(0, limit) };
+}
+
 export default {
   async fetch(request: Request, env: Env): Promise<Response> {
     if (request.method === 'OPTIONS') {
@@ -60,35 +158,33 @@ export default {
     if (url.pathname === '/health') {
       return json(request, env, {
         service: 'save-slot-api',
-        version: '1.0.0-alpha.1',
+        version: '1.0.0-alpha.2',
         status: 'ok',
         time: new Date().toISOString(),
       });
     }
 
     if (url.pathname === '/v1/providers') {
+      const providers = await Promise.all([
+        wikidataProvider.health(request.signal),
+        fixtureProvider.health(request.signal),
+      ]);
       return json(request, env, {
-        providers: [await fixtureProvider.health(request.signal)],
-        planned: ['wikidata', 'igdb', 'mobygames', 'rawg', 'libretro', 'steam'],
+        providers,
+        planned: ['igdb', 'mobygames', 'rawg', 'libretro', 'steam'],
       });
     }
 
     if (url.pathname === '/v1/search') {
       const query = url.searchParams.get('q')?.trim() ?? '';
+      const locale = url.searchParams.get('locale')?.trim() || 'uk';
       const platformId = url.searchParams.get('platform')?.trim() || undefined;
-      const cursor = url.searchParams.get('cursor')?.trim() || undefined;
       const limit = integerParam(url.searchParams.get('limit'), 30, 1, 100);
       const requestedSort = url.searchParams.get('sort') as SearchSort | null;
       const sort = requestedSort && validSorts.has(requestedSort) ? requestedSort : 'relevance';
-      const page = await fixtureProvider.search(
-        {
-          query,
-          limit,
-          ...(platformId ? { platformId } : {}),
-          ...(cursor ? { cursor } : {}),
-        },
-        request.signal,
-      );
+      const page = query
+        ? await searchCatalogue(query, locale, platformId, limit, request.signal)
+        : await discoveryCatalogue(locale, limit, request.signal);
       return json(request, env, {
         ...page,
         items: sortSearchResults(page.items, sort),
@@ -99,16 +195,11 @@ export default {
 
     if (url.pathname === '/v1/discovery') {
       const limit = integerParam(url.searchParams.get('limit'), 24, 1, 50);
-      const platformId = url.searchParams.get('platform')?.trim();
-      const pool = platformId
-        ? fixtureSearchResults.filter((result) =>
-            result.releases.some((release) => release.platform.id === platformId),
-          )
-        : fixtureSearchResults;
+      const locale = url.searchParams.get('locale')?.trim() || 'uk';
+      const page = await discoveryCatalogue(locale, limit, request.signal);
       return json(request, env, {
-        items: shuffled(pool).slice(0, limit),
+        ...page,
         session: crypto.randomUUID(),
-        providers: [await fixtureProvider.health(request.signal)],
       });
     }
 
