@@ -160,16 +160,18 @@ export class IndexedDbCollectionRepository implements CollectionRepository {
   private async readAll<T>(storeName: StoreName): Promise<T[]> {
     const database = await this.databasePromise;
     const transaction = database.transaction(storeName, 'readonly');
+    const completed = transactionComplete(transaction);
     const values = await requestResult(transaction.objectStore(storeName).getAll());
-    await transactionComplete(transaction);
+    await completed;
     return values as T[];
   }
 
   private async put(storeName: StoreName, value: unknown): Promise<void> {
     const database = await this.databasePromise;
     const transaction = database.transaction(storeName, 'readwrite');
+    const completed = transactionComplete(transaction);
     transaction.objectStore(storeName).put(value);
-    await transactionComplete(transaction);
+    await completed;
   }
 
   async listEntries(): Promise<CollectionEntry[]> {
@@ -183,6 +185,7 @@ export class IndexedDbCollectionRepository implements CollectionRepository {
   async deleteEntry(id: string): Promise<void> {
     const database = await this.databasePromise;
     const transaction = database.transaction([ENTRY_STORE, LIST_STORE], 'readwrite');
+    const completed = transactionComplete(transaction);
     transaction.objectStore(ENTRY_STORE).delete(id);
     const listStore = transaction.objectStore(LIST_STORE);
     const lists = (await requestResult(listStore.getAll())).map((list) => userListSchema.parse(list));
@@ -194,7 +197,7 @@ export class IndexedDbCollectionRepository implements CollectionRepository {
         updatedAt: new Date().toISOString(),
       });
     }
-    await transactionComplete(transaction);
+    await completed;
   }
 
   async listLists(): Promise<UserList[]> {
@@ -212,8 +215,9 @@ export class IndexedDbCollectionRepository implements CollectionRepository {
   async getSnapshot(releaseId: string): Promise<ReleaseSnapshot | undefined> {
     const database = await this.databasePromise;
     const transaction = database.transaction(SNAPSHOT_STORE, 'readonly');
+    const completed = transactionComplete(transaction);
     const value = await requestResult(transaction.objectStore(SNAPSHOT_STORE).get(releaseId));
-    await transactionComplete(transaction);
+    await completed;
     return value ? releaseSnapshotSchema.parse(value) : undefined;
   }
 
@@ -237,6 +241,7 @@ export class IndexedDbCollectionRepository implements CollectionRepository {
       [ENTRY_STORE, LIST_STORE, SNAPSHOT_STORE],
       'readwrite',
     );
+    const completed = transactionComplete(transaction);
     const entryStore = transaction.objectStore(ENTRY_STORE);
     const listStore = transaction.objectStore(LIST_STORE);
     const snapshotStore = transaction.objectStore(SNAPSHOT_STORE);
@@ -246,7 +251,7 @@ export class IndexedDbCollectionRepository implements CollectionRepository {
     for (const entry of data.entries) entryStore.put(entry);
     for (const list of data.lists) listStore.put(list);
     for (const snapshot of data.snapshots) snapshotStore.put(snapshot);
-    await transactionComplete(transaction);
+    await completed;
   }
 
   async clear(): Promise<void> {
@@ -255,10 +260,11 @@ export class IndexedDbCollectionRepository implements CollectionRepository {
       [ENTRY_STORE, LIST_STORE, SNAPSHOT_STORE],
       'readwrite',
     );
+    const completed = transactionComplete(transaction);
     transaction.objectStore(ENTRY_STORE).clear();
     transaction.objectStore(LIST_STORE).clear();
     transaction.objectStore(SNAPSHOT_STORE).clear();
-    await transactionComplete(transaction);
+    await completed;
   }
 }
 
