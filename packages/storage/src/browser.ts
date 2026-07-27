@@ -1,4 +1,10 @@
-import { collectionExportSchema, type CollectionEntry, type CollectionExport, type ReleaseSnapshot, type UserList } from '@save-slot/domain';
+import {
+  collectionExportSchema,
+  type CollectionEntry,
+  type CollectionExport,
+  type ReleaseSnapshot,
+  type UserList,
+} from '@save-slot/domain';
 import {
   IndexedDbCollectionRepository,
   MemoryCollectionRepository,
@@ -15,10 +21,7 @@ export {
 };
 export type { CollectionRepository };
 
-function projectLibraryBaseUrl(): string {
-  if (typeof window === 'undefined') return 'http://127.0.0.1:8791';
-  return `${window.location.protocol}//${window.location.hostname}:8791`;
-}
+const PROJECT_LIBRARY_URL = 'http://127.0.0.1:8791';
 
 function emitCacheStatus(status: 'ready' | 'saved' | 'unavailable' | 'error', message: string): void {
   if (typeof window === 'undefined') return;
@@ -35,7 +38,7 @@ class ProjectFileMirroredRepository implements CollectionRepository {
 
   constructor(
     private readonly base: CollectionRepository,
-    private readonly baseUrl = projectLibraryBaseUrl(),
+    private readonly baseUrl = PROJECT_LIBRARY_URL,
   ) {
     this.ready = this.restoreFromProjectFile();
   }
@@ -44,17 +47,17 @@ class ProjectFileMirroredRepository implements CollectionRepository {
     try {
       const response = await fetch(`${this.baseUrl}/library`, { cache: 'no-store' });
       if (response.status === 404) {
-        emitCacheStatus('ready', 'Project library file will be created after the first collection change.');
+        emitCacheStatus('ready', 'Файл колекції буде створено після першої зміни.');
         return;
       }
       if (!response.ok) throw new Error(`Project library read failed with HTTP ${response.status}.`);
       const payload = collectionExportSchema.parse(await response.json());
       await this.base.importData(payload);
-      emitCacheStatus('ready', 'Collection restored from .save-slot-data/library.json.');
+      emitCacheStatus('ready', 'Колекцію відновлено з .save-slot-data/library.json.');
     } catch (error) {
       const message = error instanceof Error ? error.message : String(error);
       console.warn('[Save Slot] Project library cache unavailable:', message);
-      emitCacheStatus('unavailable', message);
+      emitCacheStatus('unavailable', `Файловий кеш недоступний: ${message}`);
     }
   }
 
@@ -70,11 +73,11 @@ class ProjectFileMirroredRepository implements CollectionRepository {
             body: JSON.stringify(payload),
           });
           if (!response.ok) throw new Error(`Project library write failed with HTTP ${response.status}.`);
-          emitCacheStatus('saved', 'Collection saved to .save-slot-data/library.json.');
+          emitCacheStatus('saved', 'Колекцію збережено у .save-slot-data/library.json.');
         } catch (error) {
           const message = error instanceof Error ? error.message : String(error);
           console.warn('[Save Slot] Could not mirror collection to project folder:', message);
-          emitCacheStatus('error', message);
+          emitCacheStatus('error', `Не вдалося записати файл колекції: ${message}`);
         }
       });
     await this.writeQueue;
@@ -138,8 +141,9 @@ class ProjectFileMirroredRepository implements CollectionRepository {
 }
 
 export function createCollectionRepository(): CollectionRepository {
-  const base = typeof indexedDB === 'undefined'
-    ? new MemoryCollectionRepository()
-    : new IndexedDbCollectionRepository();
+  const base =
+    typeof indexedDB === 'undefined'
+      ? new MemoryCollectionRepository()
+      : new IndexedDbCollectionRepository();
   return typeof window === 'undefined' ? base : new ProjectFileMirroredRepository(base);
 }
