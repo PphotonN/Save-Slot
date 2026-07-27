@@ -13,7 +13,7 @@
     "dev:library": "node scripts/library-cache-server.mjs",
     "build": "pnpm -r --if-present build",
     "check": "node --check scripts/library-cache-server.mjs && node --check apps/mobile/scripts/prepare-android.mjs && pnpm -r --if-present check",
-    "test": "vitest run packages",
+    "test": "pnpm -r --if-present test",
     "test:e2e": "playwright test",
     "test:e2e:install": "playwright install chromium",
     "mobile:android:prepare": "pnpm --filter @save-slot/mobile android:prepare",
