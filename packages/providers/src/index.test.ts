@@ -10,7 +10,7 @@ describe('provider search behavior', () => {
   });
 
   it('keeps the same visible games for every sort mode', () => {
-    const visible = filterSearchResults(fixtureSearchResults, { query: '', platformId: undefined });
+    const visible = filterSearchResults(fixtureSearchResults, { query: '' });
     const baseline = new Set(visible.map((item) => item.game.id));
     for (const sort of ['relevance', 'rating', 'votes', 'year', 'title'] as const) {
       const sorted = sortSearchResults(visible, sort);
