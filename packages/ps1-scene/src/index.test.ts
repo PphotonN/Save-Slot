@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import { coverObjectFit, coverUvTransform, interpolateRigidTransform } from './index';
+import { supportsWebGL2 } from './three-controller';
 
 describe('PS1 cartridge scene math', () => {
   it('interpolates one uniform scale value instead of deforming axes', () => {
@@ -50,5 +51,9 @@ describe('PS1 cartridge scene math', () => {
       offsetX: 0,
       offsetY: 0,
     });
+  });
+
+  it('reports WebGL 2 as unavailable in the Node test environment', () => {
+    expect(supportsWebGL2()).toBe(false);
   });
 });
