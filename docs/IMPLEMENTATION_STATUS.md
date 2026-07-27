@@ -11,10 +11,12 @@ The repository contains the first functional alpha of the rewritten application.
 - pnpm monorepo;
 - SvelteKit web application;
 - Cloudflare Worker aggregation API;
+- local project-folder collection cache service;
 - shared domain, provider, storage, UI, localization and PS1-scene packages;
 - strict TypeScript and Prettier configuration;
 - private GitHub Actions verification without deployment;
-- separate web and Worker environment examples with secrets excluded from Git.
+- separate web and Worker environment examples with secrets excluded from Git;
+- automatic Windows portable runtime based on Node.js 24.18.0 LTS.
 
 ### Domain model
 
@@ -32,15 +34,28 @@ The repository contains the first functional alpha of the rewritten application.
 - submitted search uses the aggregation API when configured and an offline fixture fallback otherwise;
 - platform filtering and sorting are independent;
 - sorting changes only result order;
-- cards are added progressively from right to left;
+- cards and cartridge rows fill progressively from left to right;
 - selecting a release inserts a rigid cartridge into the left slot;
 - the slot shows year, platform, player rating, personal rating and description;
 - available release screenshots appear only after a game is selected;
-- collection entries are stored in IndexedDB;
+- IndexedDB keeps the active browser working copy;
+- collection changes are mirrored automatically to `.save-slot-data/library.json` in the project folder;
+- the previous project file is retained as `.save-slot-data/library.backup.json`;
 - collection data can be exported and restored as JSON;
 - collection views include list, medium rows and cartridges;
 - desktop and mobile layouts share one codebase;
 - a PWA manifest and offline application-shell service worker are present.
+
+### Project library cache
+
+- local-only HTTP service bound to `127.0.0.1:8791`;
+- `GET /health` reports the active project and cache path;
+- `GET /library` restores the project collection;
+- `PUT /library` writes an atomic formatted JSON file;
+- payload size is limited to 20 MB;
+- the service validates collection format and schema version before writing;
+- personal cache files are ignored by Git;
+- launcher starts and health-checks the cache before the web application.
 
 ### Catalogue providers
 
@@ -110,7 +125,8 @@ Fixtures remain useful for deterministic testing, offline development and provid
 - Libretro returns only a successfully verified platform box art asset;
 - Steam enrichment returns box art, screenshot, official description and sourced player rating;
 - cartridge transforms use one uniform scale value;
-- cover fitting preserves source aspect ratio.
+- cover fitting preserves source aspect ratio;
+- the project cache server script is included in the workspace syntax check.
 
 ## Known limitations
 
@@ -123,6 +139,7 @@ Fixtures remain useful for deterministic testing, offline development and provid
 - the current slot is a rigid CSS prototype; the isolated Three.js renderer is still pending;
 - the interface does not yet let users select among several releases of one game;
 - collection editing does not yet expose every field from the canonical model;
+- the project-folder file cache is currently intended for the local desktop launcher, not direct smartphone access;
 - cloud sync and accounts remain deferred;
 - Capacitor Android/iOS wrappers are not created yet;
 - no preview or public deployment is enabled;
@@ -137,3 +154,4 @@ Fixtures remain useful for deterministic testing, offline development and provid
 5. Replace remaining inline UI strings with localization keys.
 6. Add Playwright desktop and smartphone acceptance tests.
 7. Implement the actual isolated Three.js PS1 slot scene.
+8. Define optional encrypted or account-based synchronization for smartphone use.
