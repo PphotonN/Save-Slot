@@ -29,7 +29,10 @@ jobs:
       - name: Install dependencies
         run: pnpm install --no-frozen-lockfile
 
-      - name: Check formatting
+      - name: Normalize source formatting in the verification workspace
+        run: pnpm format
+
+      - name: Verify normalized formatting
         run: pnpm lint
 
       - name: Typecheck workspace
@@ -60,6 +63,9 @@ jobs:
 
       - name: Install dependencies
         run: pnpm install --no-frozen-lockfile
+
+      - name: Normalize source formatting in the verification workspace
+        run: pnpm format
 
       - name: Install Chromium and system dependencies
         run: pnpm exec playwright install --with-deps chromium
