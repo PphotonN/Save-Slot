@@ -166,7 +166,29 @@
   }
 
   function selectResult(result: SearchResult): void {
-    selected = result;
+    const activeRelease = result.releases[0];
+    const groupedResult = results.find((candidate) => candidate.game.id === result.game.id);
+    if (!activeRelease || !groupedResult) {
+      selected = result;
+      return;
+    }
+    selected = {
+      ...groupedResult,
+      releases: [
+        activeRelease,
+        ...groupedResult.releases.filter((release) => release.id !== activeRelease.id),
+      ],
+    };
+  }
+
+  function selectRelease(releaseId: string): void {
+    if (!selected) return;
+    const release = selected.releases.find((candidate) => candidate.id === releaseId);
+    if (!release) return;
+    selected = {
+      ...selected,
+      releases: [release, ...selected.releases.filter((candidate) => candidate.id !== releaseId)],
+    };
   }
 
   function resultFromSnapshot(snapshot: ReleaseSnapshot): SearchResult {
@@ -317,6 +339,7 @@
       onRatingChange={(value) => {
         if (selectedEntry) void updateEntry(selectedEntry, { personalRating: value });
       }}
+      onReleaseChange={selectRelease}
       onToggleCollection={() => {
         if (selected) void toggleCollection(selected);
       }}
