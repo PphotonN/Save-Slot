@@ -11,6 +11,8 @@
     textureOptions?: Partial<CartridgeTextureOptions>;
   }
 
+  type ArtworkMode = 'clean' | 'ps1' | 'crt';
+
   let {
     releaseId,
     coverUrl,
@@ -20,9 +22,22 @@
   }: Props = $props();
   let target: HTMLDivElement;
   let controller = $state<ThreeSlotSceneController | null>(null);
-  let rendererState = $state<'loading' | 'ready' | 'fallback'>('loading');
+  let rendererState = $state<'loading' | 'ready' | 'idle' | 'fallback'>('loading');
+  let artworkMode = $state<ArtworkMode>('ps1');
   let requestedOperation = 0;
   let synchronizationQueue: Promise<void> = Promise.resolve();
+
+  let effectiveTextureOptions = $derived.by((): CartridgeTextureOptions => ({
+    pixelated: artworkMode !== 'clean',
+    dither: artworkMode !== 'clean',
+    crt: artworkMode === 'crt',
+    textureResolution: textureOptions.textureResolution ?? 256,
+  }));
+
+  function setArtworkMode(mode: ArtworkMode): void {
+    artworkMode = mode;
+    localStorage.setItem('save-slot-artwork-mode', mode);
+  }
 
   function scheduleSynchronization(): void {
     const operation = ++requestedOperation;
@@ -33,14 +48,15 @@
         if (operation !== requestedOperation) return;
         const activeController = controller;
         if (!activeController) return;
-        activeController.setTextureOptions(textureOptions);
+        activeController.setTextureOptions(effectiveTextureOptions);
         try {
           if (releaseId && coverUrl) {
             await activeController.insert(releaseId, coverUrl);
+            if (operation === requestedOperation) rendererState = 'ready';
           } else {
             await activeController.eject();
+            if (operation === requestedOperation) rendererState = 'idle';
           }
-          if (operation === requestedOperation) rendererState = 'ready';
         } catch (error) {
           if (operation !== requestedOperation) return;
           console.warn('[Save Slot] Three.js slot scene fell back to CSS:', error);
@@ -54,12 +70,17 @@
   $effect(() => {
     releaseId;
     coverUrl;
-    textureOptions;
+    effectiveTextureOptions;
     controller;
     if (controller) scheduleSynchronization();
   });
 
   onMount(() => {
+    const storedMode = localStorage.getItem('save-slot-artwork-mode');
+    if (storedMode === 'clean' || storedMode === 'ps1' || storedMode === 'crt') {
+      artworkMode = storedMode;
+    }
+
     let disposed = false;
     void (async () => {
       try {
@@ -90,13 +111,20 @@
 
 <div
   aria-label={label}
-  class:crt={Boolean(textureOptions.crt)}
-  class:dither={textureOptions.dither !== false}
-  class:pixelated={textureOptions.pixelated !== false}
+  class:crt={effectiveTextureOptions.crt}
+  class:dither={effectiveTextureOptions.dither}
+  class:pixelated={effectiveTextureOptions.pixelated}
   class="scene-shell"
+  data-artwork-mode={artworkMode}
   data-renderer={rendererState}
   role="img"
 >
+  <div class="mode-controls" role="group" aria-label="Artwork display mode">
+    <button aria-pressed={artworkMode === 'clean'} class:active={artworkMode === 'clean'} onclick={() => setArtworkMode('clean')} type="button">CLEAN</button>
+    <button aria-pressed={artworkMode === 'ps1'} class:active={artworkMode === 'ps1'} onclick={() => setArtworkMode('ps1')} type="button">PS1</button>
+    <button aria-pressed={artworkMode === 'crt'} class:active={artworkMode === 'crt'} onclick={() => setArtworkMode('crt')} type="button">CRT</button>
+  </div>
+
   <div aria-hidden={rendererState === 'ready'} class:hidden={rendererState === 'ready'} class="css-fallback">
     <div class="fallback-chassis">
       <div class="fallback-slot"></div>
@@ -122,6 +150,37 @@
     min-height: inherit;
     overflow: hidden;
     isolation: isolate;
+  }
+
+  .mode-controls {
+    position: absolute;
+    z-index: 7;
+    top: 0.35rem;
+    left: 0.35rem;
+    display: flex;
+    gap: 2px;
+    padding: 2px;
+    background: rgba(5, 8, 9, 0.82);
+    border: 1px solid var(--line);
+  }
+
+  .mode-controls button {
+    min-height: 27px;
+    padding: 0.25rem 0.35rem;
+    color: var(--muted);
+    font: 0.27rem/1.2 var(--pixel-font);
+    background: #0b1113;
+    border: 0;
+  }
+
+  .mode-controls button.active {
+    color: #171402;
+    background: var(--accent);
+  }
+
+  .mode-controls button:focus-visible {
+    outline: 2px solid var(--accent-cool);
+    outline-offset: 1px;
   }
 
   .webgl-target,
@@ -210,6 +269,11 @@
     width: 100%;
     height: 100%;
     object-fit: cover;
+    filter: saturate(0.94) contrast(1.04);
+  }
+
+  .scene-shell[data-artwork-mode='clean'] .fallback-cartridge img {
+    filter: none;
   }
 
   .fallback-cartridge span {
@@ -294,6 +358,17 @@
   }
 
   @media (max-width: 760px) {
+    .mode-controls {
+      top: 0.2rem;
+      left: 0.2rem;
+    }
+
+    .mode-controls button {
+      min-height: 23px;
+      padding: 0.2rem 0.25rem;
+      font-size: 0.23rem;
+    }
+
     .fallback-chassis {
       width: 125px;
       padding: 11px 13px 17px;
