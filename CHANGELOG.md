@@ -26,7 +26,13 @@
 - bounded cursor paging with 18-game pages and a 40-game normalized pool;
 - stable page appending that keeps existing accepted cards mounted;
 - cached detail refresh when opening a game from the personal collection;
-- unit and integration tests for cache memory, KV-compatible persistence, detail routes, provider cursors and accurate fixture totals.
+- robust Libretro matcher using release titles, canonical titles, aliases, numeral variants and region-prioritized suffixes;
+- priority handling for an existing Libretro source URL or source ID;
+- Libretro thumbnail host allowlist for source-derived requests;
+- bounded `HEAD → ranged GET` fallback for servers without useful HEAD responses;
+- positive and negative in-process thumbnail probe cache;
+- matching Libretro `Named_Snaps` screenshots and `Named_Titles` title screens after a verified box-art match;
+- unit and integration tests for cache memory, KV-compatible persistence, detail routes, provider cursors, accurate fixture totals and Libretro media matching.
 
 ### Changed
 
@@ -34,6 +40,7 @@
 - adding or removing from the collection always targets the currently selected release;
 - project-file writes are debounced so a multi-step collection update is saved as one consistent payload;
 - `@save-slot/storage` now exports the project-file mirrored browser repository by default;
+- the public `@save-slot/providers/media` entry now routes Libretro enrichment through the robust full-media provider;
 - Wrangler is pinned to an exact version to prevent unexpected local runtime requirement changes;
 - the launcher waits for the library cache, API and web application before opening the browser;
 - discovery remains random while each discovered game and release is retained in the detail cache;
@@ -50,7 +57,9 @@
 - project library cache implementation not being used by the package root export;
 - online detail routes being limited to the small fixture catalogue;
 - provider aggregation dropping `nextCursor` and total metadata;
-- inaccurate offline search total when additional fixture pages remained.
+- inaccurate offline search total when additional fixture pages remained;
+- Libretro aliases being starved by a single exact-title candidate sequence;
+- thumbnail verification failing permanently when a CDN rejects HEAD despite serving the image through GET.
 
 ### Verification note
 
