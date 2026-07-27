@@ -10,8 +10,9 @@
     });
   }
 
-  loadScript("./app-v4.js?v=7")
-    .then(() => loadScript("./app-v5.js?v=7"))
+  loadScript("./app-v4.js?v=8")
+    .then(() => loadScript("./app-v5.js?v=8"))
+    .then(() => loadScript("./app-v6.js?v=8"))
     .catch(error => {
       console.error(error);
       setSourceState("error", "ПОМИЛКА ЗАПУСКУ");
