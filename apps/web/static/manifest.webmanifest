@@ -1,0 +1,21 @@
+{
+  "name": "Save Slot",
+  "short_name": "Save Slot",
+  "description": "Кросплатформний пошук ігор і менеджер особистої колекції.",
+  "start_url": "/",
+  "scope": "/",
+  "display": "standalone",
+  "orientation": "any",
+  "background_color": "#080b0d",
+  "theme_color": "#080b0d",
+  "lang": "uk",
+  "categories": ["games", "utilities"],
+  "icons": [
+    {
+      "src": "/icon.svg",
+      "sizes": "any",
+      "type": "image/svg+xml",
+      "purpose": "any maskable"
+    }
+  ]
+}
