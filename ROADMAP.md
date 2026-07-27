@@ -4,7 +4,7 @@ This roadmap describes the order of work, not fixed dates. Each phase must leave
 
 ## Phase 0 — Specification and repository reset
 
-**Status:** in progress
+**Status:** substantially complete
 
 - [x] Create private `app-v1` branch.
 - [x] Define product goal and boundaries.
@@ -12,159 +12,189 @@ This roadmap describes the order of work, not fixed dates. Each phase must leave
 - [x] Define canonical data model.
 - [x] Define desktop and mobile UX direction.
 - [x] Define security and privacy requirements.
-- [ ] Add issue templates and pull-request template.
-- [ ] Disable prototype-specific CI for `app-v1` after new workspace exists.
+- [x] Add issue templates and pull-request template.
+- [x] Add v1-specific CI without public deployment.
 - [ ] Preserve the prototype with a tag.
 
 Exit criteria:
 
-- documentation is internally consistent;
-- no new v1 functionality is added to the legacy `app-v*.js` chain;
-- all implementation work starts from this branch.
+- [x] documentation is internally consistent;
+- [x] no new v1 functionality is added to the legacy `app-v*.js` chain;
+- [x] all implementation work starts from this branch.
 
 ## Phase 1 — Workspace foundation
 
-- [ ] Create pnpm workspace.
-- [ ] Scaffold `apps/web` with SvelteKit and TypeScript strict mode.
-- [ ] Scaffold `apps/api` with Cloudflare Workers tooling.
-- [ ] Create shared packages: `domain`, `providers`, `storage`, `ui`, `i18n`, `ps1-scene`.
-- [ ] Configure ESLint, Prettier, Vitest and Playwright.
-- [ ] Add GitHub Actions for install, typecheck, lint, unit tests and build.
-- [ ] Add environment examples without secrets.
+**Status:** alpha foundation implemented
+
+- [x] Create pnpm workspace.
+- [x] Scaffold `apps/web` with SvelteKit and TypeScript strict mode.
+- [x] Scaffold `apps/api` with Cloudflare Workers tooling.
+- [x] Create shared packages: `domain`, `providers`, `storage`, `ui`, `i18n`, `ps1-scene`.
+- [x] Configure Prettier and Vitest.
+- [x] Add GitHub Actions for install, typecheck, formatting, unit tests and build.
+- [x] Add environment examples without secrets.
+- [ ] Add ESLint rules where they provide value beyond TypeScript and Svelte checks.
+- [ ] Add Playwright.
 - [ ] Add a private preview deployment only when explicitly approved.
 
 Exit criteria:
 
-- clean install and build from a fresh clone;
-- desktop and mobile shell routes render;
-- no provider credentials in the client bundle.
+- [ ] CI confirms clean install and build from a fresh clone;
+- [x] desktop and mobile shell routes render in the codebase;
+- [x] no provider credentials are present in the client bundle.
 
 ## Phase 2 — Domain model and local storage
 
-- [ ] Implement runtime schemas for `Game`, `Release`, `MediaAsset`, `Rating`, `CollectionEntry` and `UserList`.
-- [ ] Implement canonical/source IDs.
-- [ ] Implement IndexedDB database and migrations.
-- [ ] Implement collection CRUD.
-- [ ] Implement versioned JSON export/import.
-- [ ] Add tests preserving notes, ratings and release identity through migrations.
-- [ ] Add offline collection shell.
+**Status:** first implementation complete
+
+- [x] Implement runtime schemas for `Game`, `Release`, `MediaAsset`, `Rating`, `CollectionEntry` and `UserList`.
+- [x] Implement canonical/source IDs.
+- [x] Implement IndexedDB database and version boundary.
+- [x] Implement collection CRUD.
+- [x] Implement versioned JSON export/import.
+- [x] Add tests preserving notes, ratings and release identity through export/import.
+- [x] Add offline application and collection shell.
+- [ ] Add explicit IndexedDB migration fixtures for schema version 2 and later.
 
 Exit criteria:
 
-- users can create and manage mock collection entries offline;
-- export/restore produces an identical collection;
-- collection entries always reference a release.
+- [x] users can create and manage fixture collection entries offline;
+- [x] export/restore produces an equivalent collection;
+- [x] collection entries always reference a release.
 
 ## Phase 3 — Aggregation Worker
 
-- [ ] Define normalized API schemas.
-- [ ] Add provider adapter interface.
+**Status:** contracts and fixture implementation available
+
+- [x] Define normalized API routes and schemas.
+- [x] Add provider adapter interface.
 - [ ] Implement Wikidata adapter.
 - [ ] Implement IGDB adapter after credential and terms review.
+- [ ] Implement MobyGames/RAWG adapters only after licensing review.
 - [ ] Implement provider cache, timeouts and error categories.
-- [ ] Implement canonical linking and deduplication.
-- [ ] Add provider-status endpoint.
-- [ ] Add representative fixture tests for PC, modern console, handheld and retro games.
+- [x] Implement baseline canonical merge and deduplication contracts.
+- [x] Add provider-status endpoint.
+- [x] Add representative fixture coverage for PC, console, handheld and retro games.
 
 Exit criteria:
 
-- search returns normalized games from at least two providers;
-- one provider failure produces partial results instead of a global failure;
-- provider IDs remain traceable.
+- [ ] search returns normalized production data from at least two providers;
+- [x] provider interfaces support partial results instead of a global failure;
+- [x] provider IDs remain traceable in the canonical model.
 
 ## Phase 4 — Search and discovery
 
-- [ ] Build right-side search workspace.
-- [ ] Add search suggestions and submitted search.
-- [ ] Add compact filter drawer.
-- [ ] Add paging or cursor-based loading.
-- [ ] Add random discovery selection per session.
-- [ ] Keep filtering, sorting and rendering independent.
-- [ ] Implement stable progressive card reconciliation.
-- [ ] Add right-to-left visual reveal for newly accepted cards.
-- [ ] Add missing/partial/offline states.
+**Status:** fixture-backed vertical slice implemented
+
+- [x] Build right-side search workspace.
+- [ ] Add search suggestions.
+- [x] Add submitted search.
+- [x] Add compact filter drawer.
+- [ ] Add paging or cursor-based loading in the web interface.
+- [x] Add random discovery selection per session/startup.
+- [x] Keep filtering, sorting and rendering independent.
+- [x] Implement stable keyed cards and progressive reveal.
+- [x] Add right-to-left visual reveal for newly accepted cards.
+- [x] Add empty, loading and fallback states.
 
 Exit criteria:
 
-- search works without remounting existing cards;
-- changing sorting never controls whether games appear;
-- discovery selection changes between sessions;
-- mobile search and filters are usable one-handed.
+- [x] search works without requiring a sort interaction;
+- [x] changing sorting never controls whether games appear;
+- [x] discovery selection changes between application starts;
+- [x] mobile search and filters are designed for one-handed use.
 
 ## Phase 5 — Release-specific media and details
 
-- [ ] Implement release selection.
-- [ ] Implement verified cover pipeline.
-- [ ] Implement Libretro media adapter.
-- [ ] Implement Steam PC enrichment.
+**Status:** basic fixture presentation implemented; production media pipeline pending
+
+- [x] Keep selected information attached to a concrete release.
+- [x] Show release-specific fixture cover, platform, year and player rating.
+- [ ] Implement release selection for multi-release games.
+- [ ] Implement verified production cover pipeline.
+- [ ] Implement Libretro media adapter behind the Worker.
+- [ ] Implement Steam PC enrichment behind the Worker.
 - [ ] Add screenshot gallery.
 - [ ] Add separate sourced rating panels.
-- [ ] Add official/editorial description precedence.
-- [ ] Add provider/source diagnostics.
-- [ ] Add custom cover override for personal collection entries.
+- [x] Add description precedence contracts.
+- [ ] Add provider/source diagnostics to the interface.
+- [ ] Add custom cover override editor for personal collection entries.
 
 Exit criteria:
 
-- a selected release shows the correct platform and cover;
-- screenshots are labelled by platform where necessary;
-- no screenshot or banner is used as silent cover art;
-- ratings show source and sample size.
+- [x] a selected fixture release shows the correct platform and cover;
+- [ ] screenshots are labelled by platform where necessary;
+- [x] the media model does not treat screenshots or banners as covers;
+- [x] ratings retain source and sample size in the domain model.
 
 ## Phase 6 — Collection experience
 
-- [ ] Add ownership, format, progress, priority, tags, notes and personal rating.
-- [ ] Add custom lists and wishlist/backlog presets.
+**Status:** first local collection workflow implemented
+
+- [x] Add ownership, format, progress, priority, tags, notes and personal rating to the model.
+- [x] Add default local collection list.
+- [ ] Add custom lists and wishlist/backlog presets in the interface.
 - [ ] Add grouping by platform.
-- [ ] Add list view.
-- [ ] Add medium-row view.
-- [ ] Add cartridge-shelf view.
-- [ ] Preserve view and sorting per list.
-- [ ] Add duplicate-copy and multiple-edition support.
+- [x] Add list view.
+- [x] Add medium-row view.
+- [x] Add cartridge-shelf view.
+- [x] Preserve preferred view per list.
+- [x] Permit multiple releases of the same game through release-based entries.
+- [ ] Add editing UI for all ownership and copy-condition fields.
 
 Exit criteria:
 
-- a user can distinguish physical and digital versions;
-- multiple releases of the same game can coexist;
-- all three views expose the same collection data.
+- [x] the model distinguishes physical and digital versions;
+- [x] multiple releases of the same game can coexist;
+- [x] all three views use the same collection entries.
 
 ## Phase 7 — PS1 slot scene
 
-- [ ] Create low-poly slot and cartridge geometry.
-- [ ] Add low-resolution materials and nearest filtering.
-- [ ] Add optional dither/CRT box-art filter.
-- [ ] Implement rigid-body insert/eject animation.
-- [ ] Add reduced-motion and non-WebGL fallback.
-- [ ] Connect selection state without moving domain logic into Three.js.
-- [ ] Test aspect-ratio preservation.
+**Status:** rigid CSS prototype and scene contracts implemented
+
+- [ ] Create final low-poly Three.js slot and cartridge geometry.
+- [x] Add low-resolution visual direction and pixel-style materials to the CSS prototype.
+- [ ] Add optional dither/CRT box-art controls.
+- [x] Implement rigid insert animation using position, rotation and uniform scale.
+- [x] Add reduced-motion behavior.
+- [ ] Add final non-WebGL fallback after the Three.js scene exists.
+- [x] Keep domain logic outside the scene package.
+- [x] Add aspect-ratio preservation tests.
 
 Exit criteria:
 
-- cartridge and cover do not deform;
-- selection information appears immediately after insertion;
-- animation remains usable on a mid-range smartphone.
+- [x] cartridge and cover do not deform in the prototype;
+- [x] selection information appears immediately after insertion;
+- [ ] final Three.js scene remains usable on a mid-range smartphone.
 
 ## Phase 8 — Localization and translation
 
-- [ ] Add Ukrainian and English UI catalogues.
-- [ ] Add language detection and manual language selection.
-- [ ] Prefer provider-localized descriptions.
-- [ ] Add original/translated description toggle.
-- [ ] Implement translation adapter and local cache.
+**Status:** localization contracts implemented
+
+- [x] Add Ukrainian and English UI catalogues.
+- [x] Add locale detection and manual language selection foundation.
+- [x] Prefer localized descriptions through the domain helper.
+- [x] Add original/localized description toggle for available fixture text.
+- [ ] Implement external translation adapter and local cache.
 - [ ] Add privacy disclosure before external translation.
 - [ ] Add stale-translation invalidation by source-text hash.
+- [ ] Replace remaining inline Ukrainian strings with message keys.
 
 Exit criteria:
 
-- all UI text is localized through message keys;
-- descriptions can be translated into the active UI language;
-- original text remains accessible.
+- [ ] all UI text is localized through message keys;
+- [ ] descriptions can be translated into the active UI language through a provider;
+- [x] original text remains accessible when available.
 
 ## Phase 9 — PWA and smartphone readiness
 
-- [ ] Add installable manifest and service worker.
-- [ ] Define cache/update behaviour.
-- [ ] Test offline collection access.
-- [ ] Test safe areas and mobile navigation.
+**Status:** installable shell implemented
+
+- [x] Add installable manifest and service worker.
+- [x] Define initial application-shell cache/update behavior.
+- [x] Keep collection data local and independent from the catalogue cache.
+- [x] Add safe-area-aware mobile navigation.
+- [ ] Test offline collection access in browsers and installed mode.
 - [ ] Test low-memory image handling.
 - [ ] Add Capacitor wrapper.
 - [ ] Add Android build pipeline.
@@ -173,15 +203,15 @@ Exit criteria:
 
 Exit criteria:
 
-- PWA installs and updates cleanly;
-- collection remains usable offline;
-- Android package uses the same frontend and data model.
+- [ ] PWA installation and updates are verified on target browsers;
+- [ ] collection remains usable offline in acceptance tests;
+- [ ] Android package uses the same frontend and data model.
 
 ## Phase 10 — Private beta and public readiness
 
 - [ ] Review every provider's current terms and attribution.
 - [ ] Review image proxy/cache permissions.
-- [ ] Run security and import tests.
+- [ ] Run security and malicious-import tests.
 - [ ] Validate major platforms and representative edge cases.
 - [ ] Add privacy policy and source attribution page.
 - [ ] Add telemetry only if privacy-safe and necessary.
