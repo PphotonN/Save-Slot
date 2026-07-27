@@ -14,10 +14,14 @@
     "build": "pnpm -r --if-present build",
     "check": "node --check scripts/library-cache-server.mjs && pnpm -r --if-present check",
     "test": "vitest run packages",
-    "lint": "prettier --check package.json pnpm-workspace.yaml tsconfig.base.json .prettierrc",
-    "format": "prettier --write apps packages scripts package.json pnpm-workspace.yaml tsconfig.base.json"
+    "test:e2e": "playwright test",
+    "test:e2e:install": "playwright install chromium",
+    "verify": "pnpm lint && pnpm check && pnpm test && pnpm build",
+    "lint": "prettier --check apps packages scripts tests package.json pnpm-workspace.yaml tsconfig.base.json .prettierrc playwright.config.ts",
+    "format": "prettier --write apps packages scripts tests package.json pnpm-workspace.yaml tsconfig.base.json playwright.config.ts"
   },
   "devDependencies": {
+    "@playwright/test": "^1.61.1",
     "prettier": "^3.9.6",
     "prettier-plugin-svelte": "^3.4.0",
     "typescript": "^5.9.3",
