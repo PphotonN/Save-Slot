@@ -13,6 +13,18 @@
     type ReleaseSnapshot,
     type UserList,
   } from '@save-slot/domain';
+  import {
+    completenessLabel,
+    conditionLabel,
+    formatLabel,
+    formatMessage,
+    groupingLabel,
+    ownershipLabel,
+    presetLabel,
+    statusLabel,
+    translate,
+    type SupportedLocale,
+  } from '@save-slot/i18n';
   import { collectionViews } from '@save-slot/ui';
 
   interface Props {
@@ -22,6 +34,7 @@
     snapshots: Map<string, ReleaseSnapshot>;
     view: CollectionView;
     groupBy: CollectionGrouping;
+    locale: SupportedLocale;
     onViewChange: (view: CollectionView) => void | Promise<void>;
     onGroupByChange: (grouping: CollectionGrouping) => void | Promise<void>;
     onListChange: (listId: string) => void;
@@ -43,6 +56,7 @@
     snapshots,
     view,
     groupBy,
+    locale,
     onViewChange,
     onGroupByChange,
     onListChange,
@@ -53,6 +67,46 @@
     onRemove,
     onUpdate,
   }: Props = $props();
+
+  const statuses: CollectionStatus[] = [
+    'owned',
+    'wishlist',
+    'backlog',
+    'playing',
+    'completed',
+    'mastered',
+    'paused',
+    'dropped',
+  ];
+  const ownerships: Ownership[] = ['physical', 'digital', 'subscription', 'borrowed', 'none'];
+  const formats: ReleaseFormat[] = [
+    'physical',
+    'digital',
+    'cartridge',
+    'disc',
+    'download',
+    'streaming',
+    'unknown',
+  ];
+  const conditions: CopyCondition[] = [
+    'mint',
+    'excellent',
+    'good',
+    'fair',
+    'poor',
+    'damaged',
+    'unknown',
+  ];
+  const completenessValues: CopyCompleteness[] = [
+    'sealed',
+    'complete',
+    'missing-manual',
+    'missing-inserts',
+    'box-only',
+    'media-only',
+    'loose',
+    'unknown',
+  ];
 
   let query = $state('');
   let statusFilter = $state<'all' | CollectionStatus>('all');
@@ -80,63 +134,6 @@
   let draftTags = $state('');
   let draftNotes = $state('');
   let draftListIds = $state<string[]>([]);
-
-  const statusLabels: Record<CollectionStatus, string> = {
-    owned: 'Володію',
-    wishlist: 'Бажане',
-    backlog: 'Заплановано',
-    playing: 'Граю',
-    completed: 'Пройдено',
-    mastered: '100%',
-    paused: 'Відкладено',
-    dropped: 'Покинуто',
-  };
-
-  const ownershipLabels: Record<Ownership, string> = {
-    physical: 'Фізична копія',
-    digital: 'Цифрова копія',
-    subscription: 'Підписка',
-    borrowed: 'Позичено',
-    none: 'Не вказано',
-  };
-
-  const formatLabels: Record<ReleaseFormat, string> = {
-    physical: 'Фізичне видання',
-    digital: 'Цифрове видання',
-    cartridge: 'Картридж',
-    disc: 'Диск',
-    download: 'Завантаження',
-    streaming: 'Стримінг',
-    unknown: 'Не вказано',
-  };
-
-  const conditionLabels: Record<CopyCondition, string> = {
-    mint: 'Як нова',
-    excellent: 'Відмінний',
-    good: 'Добрий',
-    fair: 'Задовільний',
-    poor: 'Поганий',
-    damaged: 'Пошкоджений',
-    unknown: 'Не вказано',
-  };
-
-  const completenessLabels: Record<CopyCompleteness, string> = {
-    sealed: 'Запечатана',
-    complete: 'Повний комплект',
-    'missing-manual': 'Без інструкції',
-    'missing-inserts': 'Без вкладень',
-    'box-only': 'Лише коробка',
-    'media-only': 'Лише носій',
-    loose: 'Без коробки',
-    unknown: 'Не вказано',
-  };
-
-  const presetLabels: Record<UserList['preset'], string> = {
-    collection: 'Колекція',
-    wishlist: 'Бажане',
-    backlog: 'Заплановано',
-    custom: 'Власний список',
-  };
 
   const presetRank: Record<UserList['preset'], number> = {
     collection: 0,
@@ -168,6 +165,35 @@
     return entries.filter((entry) => belongsToList(entry, list)).length;
   }
 
+  function listDisplayName(list: UserList): string {
+    return list.preset === 'custom' ? list.name : presetLabel(locale, list.preset);
+  }
+
+  function viewLabel(value: CollectionView): string {
+    return translate(
+      locale,
+      value === 'list' ? 'listView' : value === 'rows' ? 'rowView' : 'cartridgeView',
+    );
+  }
+
+  function sortLabel(value: CollectionSort): string {
+    switch (value) {
+      case 'title':
+        return translate(locale, 'title');
+      case 'platform':
+        return translate(locale, 'platform');
+      case 'year':
+        return translate(locale, 'releaseYear');
+      case 'rating':
+        return translate(locale, 'personalRating');
+      case 'priority':
+        return translate(locale, 'priority');
+      case 'recent':
+      default:
+        return locale === 'uk' ? 'Останні зміни' : 'Recently updated';
+    }
+  }
+
   let scopedEntries = $derived(
     activeList ? entries.filter((entry) => belongsToList(entry, activeList)) : entries,
   );
@@ -179,12 +205,13 @@
   );
 
   let platformOptions = $derived.by(() =>
-    [...new Map(allItems.map(({ snapshot }) => [snapshot.release.platform.id, snapshot.release.platform])).values()]
-      .sort((left, right) => left.name.localeCompare(right.name, 'uk-UA')),
+    [...new Map(
+      allItems.map(({ snapshot }) => [snapshot.release.platform.id, snapshot.release.platform]),
+    ).values()].sort((left, right) => left.name.localeCompare(right.name, locale)),
   );
 
   let items = $derived.by(() => {
-    const normalizedQuery = query.trim().toLocaleLowerCase('uk-UA');
+    const normalizedQuery = query.trim().toLocaleLowerCase(locale);
     const filtered = allItems.filter(({ entry, snapshot }) => {
       if (statusFilter !== 'all' && entry.status !== statusFilter) return false;
       if (platformFilter !== 'all' && snapshot.release.platform.id !== platformFilter) return false;
@@ -198,7 +225,7 @@
         ...entry.tags,
       ]
         .join(' ')
-        .toLocaleLowerCase('uk-UA')
+        .toLocaleLowerCase(locale)
         .includes(normalizedQuery);
     });
 
@@ -206,19 +233,23 @@
       if (groupBy === 'platform') {
         const platformOrder = left.snapshot.release.platform.name.localeCompare(
           right.snapshot.release.platform.name,
-          'uk-UA',
+          locale,
         );
         if (platformOrder) return platformOrder;
       }
-      const leftRating = left.entry.personalRating ?? getPlayerRating(left.snapshot.release)?.score ?? -1;
-      const rightRating = right.entry.personalRating ?? getPlayerRating(right.snapshot.release)?.score ?? -1;
+      const leftRating =
+        left.entry.personalRating ?? getPlayerRating(left.snapshot.release)?.score ?? -1;
+      const rightRating =
+        right.entry.personalRating ?? getPlayerRating(right.snapshot.release)?.score ?? -1;
       switch (sort) {
         case 'title':
-          return left.snapshot.game.title.localeCompare(right.snapshot.game.title, 'uk-UA');
+          return left.snapshot.game.title.localeCompare(right.snapshot.game.title, locale);
         case 'platform':
           return (
-            left.snapshot.release.platform.name.localeCompare(right.snapshot.release.platform.name, 'uk-UA') ||
-            left.snapshot.game.title.localeCompare(right.snapshot.game.title, 'uk-UA')
+            left.snapshot.release.platform.name.localeCompare(
+              right.snapshot.release.platform.name,
+              locale,
+            ) || left.snapshot.game.title.localeCompare(right.snapshot.game.title, locale)
           );
         case 'year':
           return (right.snapshot.release.year ?? 0) - (left.snapshot.release.year ?? 0);
@@ -233,11 +264,21 @@
     });
   });
 
+  let platformGroupCounts = $derived.by(() => {
+    const counts = new Map<string, number>();
+    for (const item of items) {
+      const platformId = item.snapshot.release.platform.id;
+      counts.set(platformId, (counts.get(platformId) ?? 0) + 1);
+    }
+    return counts;
+  });
+
   let editingItem = $derived(
     editingId
       ? (entries
           .map((entry) => ({ entry, snapshot: snapshots.get(entry.releaseId) }))
-          .find((item): item is Item => item.entry.id === editingId && Boolean(item.snapshot)) ?? null)
+          .find((item): item is Item => item.entry.id === editingId && Boolean(item.snapshot)) ??
+        null)
       : null,
   );
 
@@ -295,7 +336,7 @@
         const parsed = new URL(customCoverUrl);
         if (!['http:', 'https:'].includes(parsed.protocol)) throw new Error('Unsupported protocol');
       } catch {
-        editorError = 'Власна обкладинка повинна мати коректну адресу HTTP або HTTPS.';
+        editorError = translate(locale, 'invalidCoverUrl');
         return;
       }
     }
@@ -313,12 +354,16 @@
       boxCondition: draftBoxCondition,
       mediaCondition: draftMediaCondition,
       completeness: draftCompleteness,
-      personalRating: draftRating === '' ? null : Math.min(100, Math.max(0, Number(draftRating))),
+      personalRating:
+        draftRating === '' ? null : Math.min(100, Math.max(0, Number(draftRating))),
       priority: Math.min(5, Math.max(1, Math.round(draftPriority))),
       quantity: Math.max(1, Math.round(draftQuantity)),
       acquiredAt: draftAcquiredAt || null,
       purchasePrice: draftPrice === '' ? null : Math.max(0, Number(draftPrice)),
-      currency: draftPrice === '' ? null : draftCurrency.trim().toLocaleUpperCase('en-US').slice(0, 3) || 'UAH',
+      currency:
+        draftPrice === ''
+          ? null
+          : draftCurrency.trim().toLocaleUpperCase('en-US').slice(0, 3) || 'UAH',
       customCoverUrl: customCoverUrl || null,
       tags,
       notes: draftNotes.trim(),
@@ -332,12 +377,7 @@
   }
 
   async function createList(): Promise<void> {
-    const fallbackName =
-      newListPreset === 'wishlist'
-        ? 'Бажане'
-        : newListPreset === 'backlog'
-          ? 'Заплановано'
-          : 'Новий список';
+    const fallbackName = presetLabel(locale, newListPreset);
     await onCreateList(newListName.trim() || fallbackName, newListPreset);
     newListName = '';
     newListPreset = 'custom';
@@ -359,16 +399,16 @@
 <section class="collection-panel">
   <header class="collection-header">
     <div>
-      <p>ВЛАСНА БІБЛІОТЕКА</p>
-      <h1>{activeList?.name ?? 'Колекція'} <span>{scopedEntries.length}</span></h1>
+      <p>{translate(locale, 'personalLibrary').toLocaleUpperCase(locale)}</p>
+      <h1>{activeList ? listDisplayName(activeList) : translate(locale, 'collection')} <span>{scopedEntries.length}</span></h1>
     </div>
-    <div class="view-switcher" aria-label="Режим відображення">
+    <div class="view-switcher" aria-label={translate(locale, 'personalLibrary')}>
       {#each collectionViews as option}
         <button
-          aria-label={option.id === 'list' ? 'Список' : option.id === 'rows' ? 'Середні рядки' : 'Картриджі'}
+          aria-label={viewLabel(option.id)}
           aria-pressed={view === option.id}
           class:active={view === option.id}
-          onclick={() => onViewChange(option.id)}
+          onclick={() => void onViewChange(option.id)}
           type="button"
         >
           {option.id === 'list' ? '☷' : option.id === 'rows' ? '▤' : '▦'}
@@ -378,74 +418,74 @@
   </header>
 
   <div class="list-strip">
-    <div class="list-tabs" aria-label="Списки колекції">
+    <div class="list-tabs" aria-label={translate(locale, 'lists')}>
       {#each orderedLists as list (list.id)}
         <button class:active={list.id === activeList?.id} onclick={() => onListChange(list.id)} type="button">
-          <span>{list.name}</span><small>{listCount(list)}</small>
+          <span>{listDisplayName(list)}</span><small>{listCount(list)}</small>
         </button>
       {/each}
     </div>
     <div class="list-actions">
       {#if activeList && activeList.preset !== 'collection'}
-        <button class="delete-list" onclick={() => void deleteActiveList()} type="button" aria-label="Видалити список">×</button>
+        <button class="delete-list" onclick={() => void deleteActiveList()} type="button" aria-label={translate(locale, 'deleteList')}>×</button>
       {/if}
-      <button onclick={() => (listCreatorOpen = !listCreatorOpen)} type="button">+ СПИСОК</button>
+      <button onclick={() => (listCreatorOpen = !listCreatorOpen)} type="button">{translate(locale, 'addList').toLocaleUpperCase(locale)}</button>
     </div>
   </div>
 
   {#if listCreatorOpen}
     <div class="list-creator">
       <label>
-        <span>ТИП</span>
+        <span>{translate(locale, 'listType').toLocaleUpperCase(locale)}</span>
         <select bind:value={newListPreset}>
-          <option value="custom">Власний</option>
-          <option value="wishlist">Бажане</option>
-          <option value="backlog">Заплановано</option>
+          <option value="custom">{presetLabel(locale, 'custom')}</option>
+          <option value="wishlist">{presetLabel(locale, 'wishlist')}</option>
+          <option value="backlog">{presetLabel(locale, 'backlog')}</option>
         </select>
       </label>
-      <label><span>НАЗВА</span><input bind:value={newListName} placeholder={presetLabels[newListPreset]} /></label>
-      <button class="primary-action" onclick={() => void createList()} type="button">СТВОРИТИ</button>
+      <label>
+        <span>{translate(locale, 'listName').toLocaleUpperCase(locale)}</span>
+        <input bind:value={newListName} placeholder={presetLabel(locale, newListPreset)} />
+      </label>
+      <button class="primary-action" onclick={() => void createList()} type="button">{translate(locale, 'createList').toLocaleUpperCase(locale)}</button>
     </div>
   {/if}
 
   <div class="collection-toolbar">
-    <label class="library-search"><span>&gt;</span><input bind:value={query} placeholder="Пошук у списку…" type="search" /></label>
+    <label class="library-search"><span>&gt;</span><input bind:value={query} placeholder={translate(locale, 'searchCollection')} type="search" /></label>
     <label>
-      <span>СТАТУС</span>
+      <span>{translate(locale, 'status').toLocaleUpperCase(locale)}</span>
       <select bind:value={statusFilter}>
-        <option value="all">Усі статуси</option>
-        {#each Object.entries(statusLabels) as [status, label]}<option value={status}>{label}</option>{/each}
+        <option value="all">{translate(locale, 'allStatuses')}</option>
+        {#each statuses as status}<option value={status}>{statusLabel(locale, status)}</option>{/each}
       </select>
     </label>
     <label>
-      <span>ПЛАТФОРМА</span>
+      <span>{translate(locale, 'platform').toLocaleUpperCase(locale)}</span>
       <select bind:value={platformFilter}>
-        <option value="all">Усі платформи</option>
+        <option value="all">{translate(locale, 'allPlatforms')}</option>
         {#each platformOptions as platform}<option value={platform.id}>{platform.name}</option>{/each}
       </select>
     </label>
     <label>
-      <span>СОРТУВАННЯ</span>
+      <span>{translate(locale, 'sort').toLocaleUpperCase(locale)}</span>
       <select bind:value={sort}>
-        <option value="recent">Останні зміни</option>
-        <option value="title">Назва</option>
-        <option value="platform">Платформа</option>
-        <option value="year">Рік</option>
-        <option value="rating">Оцінка</option>
-        <option value="priority">Пріоритет</option>
+        {#each ['recent', 'title', 'platform', 'year', 'rating', 'priority'] as value}
+          <option value={value}>{sortLabel(value as CollectionSort)}</option>
+        {/each}
       </select>
     </label>
     <label>
-      <span>ГРУПУВАННЯ</span>
-      <select onchange={(event) => onGroupByChange((event.currentTarget as HTMLSelectElement).value as CollectionGrouping)} value={groupBy}>
-        <option value="none">Без групування</option>
-        <option value="platform">За платформою</option>
+      <span>{translate(locale, 'grouping').toLocaleUpperCase(locale)}</span>
+      <select onchange={(event) => void onGroupByChange((event.currentTarget as HTMLSelectElement).value as CollectionGrouping)} value={groupBy}>
+        <option value="none">{groupingLabel(locale, 'none')}</option>
+        <option value="platform">{groupingLabel(locale, 'platform')}</option>
       </select>
     </label>
   </div>
 
   <div class="collection-summary" aria-live="polite">
-    <span>{items.length} З {scopedEntries.length}</span>
+    <span>{formatMessage(locale, 'shown', { shown: items.length, total: scopedEntries.length }).toLocaleUpperCase(locale)}</span>
     {#if query || statusFilter !== 'all' || platformFilter !== 'all'}
       <button
         onclick={() => {
@@ -454,65 +494,74 @@
           platformFilter = 'all';
         }}
         type="button"
-      >СКИНУТИ ФІЛЬТРИ</button>
+      >{translate(locale, 'resetFilters').toLocaleUpperCase(locale)}</button>
     {/if}
   </div>
 
   {#if scopedEntries.length === 0}
-    <div class="empty-collection"><strong>СПИСОК ПОРОЖНІЙ</strong><span>Додайте гру до цього списку через редактор запису.</span></div>
+    <div class="empty-collection">
+      <strong>{translate(locale, 'emptyList').toLocaleUpperCase(locale)}</strong>
+      <span>{translate(locale, 'addThroughEditor')}</span>
+    </div>
   {:else if items.length === 0}
-    <div class="empty-collection"><strong>НЕМАЄ ЗБІГІВ</strong><span>Змініть пошук або фільтри колекції.</span></div>
+    <div class="empty-collection">
+      <strong>{translate(locale, 'noMatches').toLocaleUpperCase(locale)}</strong>
+      <span>{translate(locale, 'changeCollectionFilters')}</span>
+    </div>
   {:else}
     <div class:cartridges={view === 'cartridges'} class:list={view === 'list'} class:rows={view === 'rows'} class="collection-items">
       {#each items as item, index (item.entry.id)}
         {@const entry = item.entry}
         {@const snapshot = item.snapshot}
         {@const cover = getPrimaryCover(snapshot.release)}
+        {@const coverUrl = entry.customCoverUrl ?? cover?.url}
         {@const rating = getPlayerRating(snapshot.release)}
         {#if beginsPlatformGroup(index, item)}
           <div class="platform-group-heading">
             <strong>{snapshot.release.platform.name}</strong>
-            <span>{items.filter((candidate) => candidate.snapshot.release.platform.id === snapshot.release.platform.id).length}</span>
+            <span>{platformGroupCounts.get(snapshot.release.platform.id) ?? 0}</span>
           </div>
         {/if}
         <article class="collection-item">
           <button class="collection-cover" onclick={() => onSelect(snapshot)} type="button">
-            {#if entry.customCoverUrl || cover}
-              <img src={entry.customCoverUrl || cover?.url} alt={`Боксарт ${snapshot.game.title}`} loading="lazy" />
+            {#if coverUrl}
+              <img src={coverUrl} alt={`${translate(locale, 'customCover')}: ${snapshot.game.title}`} loading="lazy" />
             {:else}
-              <span>{snapshot.game.title.slice(0, 2).toLocaleUpperCase()}</span>
+              <span>{snapshot.game.title.slice(0, 2).toLocaleUpperCase(locale)}</span>
             {/if}
           </button>
           <div class="collection-copy">
             <button class="title-button" onclick={() => onSelect(snapshot)} type="button">{snapshot.game.title}</button>
             <p>{snapshot.release.platform.name} · {snapshot.release.year ?? '—'}</p>
             <div class="collection-ratings">
-              <span>ГРАВЦІ {rating ? `${Math.round(rating.score)}%` : '—'}</span>
-              <span>МОЯ {entry.personalRating == null ? '—' : `${entry.personalRating}/100`}</span>
-              <span>ПРІОРИТЕТ {entry.priority}/5</span>
-              {#if entry.completeness !== 'unknown'}<span>{completenessLabels[entry.completeness]}</span>{/if}
+              <span>{translate(locale, 'playersShort').toLocaleUpperCase(locale)} {rating ? `${Math.round(rating.score)}%` : '—'}</span>
+              <span>{translate(locale, 'myRatingShort').toLocaleUpperCase(locale)} {entry.personalRating == null ? '—' : `${entry.personalRating}/100`}</span>
+              <span>{translate(locale, 'priority').toLocaleUpperCase(locale)} {entry.priority}/5</span>
+              {#if entry.completeness !== 'unknown'}<span>{completenessLabel(locale, entry.completeness)}</span>{/if}
+              {#if entry.ownership === 'physical' && entry.boxCondition !== 'unknown'}<span>{translate(locale, 'boxCondition')}: {conditionLabel(locale, entry.boxCondition)}</span>{/if}
+              {#if entry.ownership === 'physical' && entry.mediaCondition !== 'unknown'}<span>{translate(locale, 'mediaCondition')}: {conditionLabel(locale, entry.mediaCondition)}</span>{/if}
             </div>
             {#if entry.tags.length}<div class="entry-tags">{#each entry.tags.slice(0, 3) as tag}<span>{tag}</span>{/each}</div>{/if}
           </div>
           <label class="mini-field status-field">
-            <span>СТАТУС</span>
+            <span>{translate(locale, 'status').toLocaleUpperCase(locale)}</span>
             <select
-              aria-label="Статус у колекції"
-              onchange={(event) => onUpdate(entry, { status: (event.currentTarget as HTMLSelectElement).value as CollectionStatus })}
+              aria-label={translate(locale, 'status')}
+              onchange={(event) => void onUpdate(entry, { status: (event.currentTarget as HTMLSelectElement).value as CollectionStatus })}
               value={entry.status}
             >
-              {#each Object.entries(statusLabels) as [status, label]}<option value={status}>{label}</option>{/each}
+              {#each statuses as status}<option value={status}>{statusLabel(locale, status)}</option>{/each}
             </select>
           </label>
           <label class="mini-field rating-field">
-            <span>МОЯ ОЦІНКА</span>
+            <span>{translate(locale, 'personalRating').toLocaleUpperCase(locale)}</span>
             <input
-              aria-label="Особиста оцінка"
+              aria-label={translate(locale, 'personalRating')}
               max="100"
               min="0"
               onchange={(event) => {
                 const value = (event.currentTarget as HTMLInputElement).value;
-                onUpdate(entry, { personalRating: value === '' ? null : Number(value) });
+                void onUpdate(entry, { personalRating: value === '' ? null : Number(value) });
               }}
               placeholder="—"
               type="number"
@@ -520,8 +569,8 @@
             />
           </label>
           <div class="entry-actions">
-            <button class="edit-entry" onclick={() => openEditor(entry)} type="button" aria-label="Редагувати запис">✎</button>
-            <button class="remove-entry" onclick={() => onRemove(entry)} type="button" aria-label="Видалити">×</button>
+            <button class="edit-entry" onclick={() => openEditor(entry)} type="button" aria-label={translate(locale, 'editEntry')}>✎</button>
+            <button class="remove-entry" onclick={() => void onRemove(entry)} type="button" aria-label={translate(locale, 'removeEntry')}>×</button>
           </div>
         </article>
       {/each}
@@ -531,34 +580,34 @@
 
 {#if editingItem}
   <div class="editor-backdrop" onclick={closeEditor} role="presentation">
-    <section class="entry-editor" onclick={(event) => event.stopPropagation()} aria-label="Редактор запису колекції">
+    <section class="entry-editor" onclick={(event) => event.stopPropagation()} aria-label={translate(locale, 'editEntry')}>
       <header>
         <div>
-          <p>РЕДАГУВАННЯ КОПІЇ</p>
+          <p>{translate(locale, 'editCopy').toLocaleUpperCase(locale)}</p>
           <h2>{editingItem.snapshot.game.title}</h2>
           <span>{editingItem.snapshot.release.platform.name} · {editingItem.snapshot.release.year ?? '—'}</span>
         </div>
-        <button class="close-editor" onclick={closeEditor} type="button" aria-label="Закрити">×</button>
+        <button class="close-editor" onclick={closeEditor} type="button" aria-label={translate(locale, 'cancel')}>×</button>
       </header>
 
       {#if editorError}<div class="editor-error" role="alert">{editorError}</div>{/if}
 
       <div class="editor-grid">
-        <label><span>СТАТУС</span><select bind:value={draftStatus}>{#each Object.entries(statusLabels) as [value, label]}<option {value}>{label}</option>{/each}</select></label>
-        <label><span>ВОЛОДІННЯ</span><select bind:value={draftOwnership}>{#each Object.entries(ownershipLabels) as [value, label]}<option {value}>{label}</option>{/each}</select></label>
-        <label><span>ФОРМАТ</span><select bind:value={draftFormat}>{#each Object.entries(formatLabels) as [value, label]}<option {value}>{label}</option>{/each}</select></label>
-        <label><span>СТАН КОРОБКИ</span><select bind:value={draftBoxCondition}>{#each Object.entries(conditionLabels) as [value, label]}<option {value}>{label}</option>{/each}</select></label>
-        <label><span>СТАН НОСІЯ</span><select bind:value={draftMediaCondition}>{#each Object.entries(conditionLabels) as [value, label]}<option {value}>{label}</option>{/each}</select></label>
-        <label><span>КОМПЛЕКТНІСТЬ</span><select bind:value={draftCompleteness}>{#each Object.entries(completenessLabels) as [value, label]}<option {value}>{label}</option>{/each}</select></label>
-        <label><span>МОЯ ОЦІНКА</span><input bind:value={draftRating} min="0" max="100" placeholder="—" type="number" /></label>
-        <label><span>ПРІОРИТЕТ 1–5</span><input bind:value={draftPriority} min="1" max="5" type="number" /></label>
-        <label><span>КІЛЬКІСТЬ</span><input bind:value={draftQuantity} min="1" type="number" /></label>
-        <label><span>ДАТА ПРИДБАННЯ</span><input bind:value={draftAcquiredAt} type="date" /></label>
-        <label><span>ЦІНА</span><input bind:value={draftPrice} min="0" step="0.01" placeholder="—" type="number" /></label>
-        <label><span>ВАЛЮТА</span><input bind:value={draftCurrency} maxlength="3" placeholder="UAH" /></label>
+        <label><span>{translate(locale, 'status').toLocaleUpperCase(locale)}</span><select bind:value={draftStatus}>{#each statuses as value}<option {value}>{statusLabel(locale, value)}</option>{/each}</select></label>
+        <label><span>{translate(locale, 'ownership').toLocaleUpperCase(locale)}</span><select bind:value={draftOwnership}>{#each ownerships as value}<option {value}>{ownershipLabel(locale, value)}</option>{/each}</select></label>
+        <label><span>{translate(locale, 'format').toLocaleUpperCase(locale)}</span><select bind:value={draftFormat}>{#each formats as value}<option {value}>{formatLabel(locale, value)}</option>{/each}</select></label>
+        <label><span>{translate(locale, 'boxCondition').toLocaleUpperCase(locale)}</span><select bind:value={draftBoxCondition}>{#each conditions as value}<option {value}>{conditionLabel(locale, value)}</option>{/each}</select></label>
+        <label><span>{translate(locale, 'mediaCondition').toLocaleUpperCase(locale)}</span><select bind:value={draftMediaCondition}>{#each conditions as value}<option {value}>{conditionLabel(locale, value)}</option>{/each}</select></label>
+        <label><span>{translate(locale, 'completeness').toLocaleUpperCase(locale)}</span><select bind:value={draftCompleteness}>{#each completenessValues as value}<option {value}>{completenessLabel(locale, value)}</option>{/each}</select></label>
+        <label><span>{translate(locale, 'personalRating').toLocaleUpperCase(locale)}</span><input bind:value={draftRating} min="0" max="100" placeholder="—" type="number" /></label>
+        <label><span>{translate(locale, 'priority').toLocaleUpperCase(locale)} 1–5</span><input bind:value={draftPriority} min="1" max="5" type="number" /></label>
+        <label><span>{translate(locale, 'quantity').toLocaleUpperCase(locale)}</span><input bind:value={draftQuantity} min="1" type="number" /></label>
+        <label><span>{translate(locale, 'acquiredAt').toLocaleUpperCase(locale)}</span><input bind:value={draftAcquiredAt} type="date" /></label>
+        <label><span>{translate(locale, 'price').toLocaleUpperCase(locale)}</span><input bind:value={draftPrice} min="0" step="0.01" placeholder="—" type="number" /></label>
+        <label><span>{translate(locale, 'currency').toLocaleUpperCase(locale)}</span><input bind:value={draftCurrency} maxlength="3" placeholder="UAH" /></label>
 
         <fieldset class="list-membership wide-field">
-          <legend>СПИСКИ</legend>
+          <legend>{translate(locale, 'lists').toLocaleUpperCase(locale)}</legend>
           {#each orderedLists as list (list.id)}
             <label>
               <input
@@ -567,28 +616,28 @@
                 onchange={() => toggleDraftList(list)}
                 type="checkbox"
               />
-              <span>{list.name}</span><small>{presetLabels[list.preset]}</small>
+              <span>{listDisplayName(list)}</span><small>{presetLabel(locale, list.preset)}</small>
             </label>
           {/each}
         </fieldset>
 
         <label class="wide-field">
-          <span>ВЛАСНА ОБКЛАДИНКА</span>
-          <input bind:value={draftCustomCoverUrl} placeholder="https://…" type="url" />
+          <span>{translate(locale, 'customCover').toLocaleUpperCase(locale)}</span>
+          <input bind:value={draftCustomCoverUrl} placeholder={translate(locale, 'customCoverPlaceholder')} type="url" />
         </label>
         {#if draftCustomCoverUrl}
           <div class="custom-cover-preview wide-field">
-            <img src={draftCustomCoverUrl} alt="Попередній перегляд власної обкладинки" />
-            <button onclick={() => (draftCustomCoverUrl = '')} type="button">СКИНУТИ</button>
+            <img src={draftCustomCoverUrl} alt={translate(locale, 'customCover')} />
+            <button onclick={() => (draftCustomCoverUrl = '')} type="button">{translate(locale, 'reset').toLocaleUpperCase(locale)}</button>
           </div>
         {/if}
-        <label class="wide-field"><span>ТЕГИ ЧЕРЕЗ КОМУ</span><input bind:value={draftTags} placeholder="ретро, улюблене, запечатане" /></label>
-        <label class="wide-field"><span>НОТАТКИ</span><textarea bind:value={draftNotes} rows="5" placeholder="Стан копії, комплектація, прогрес або інші примітки…"></textarea></label>
+        <label class="wide-field"><span>{translate(locale, 'tagsCommaSeparated').toLocaleUpperCase(locale)}</span><input bind:value={draftTags} placeholder={translate(locale, 'tagsPlaceholder')} /></label>
+        <label class="wide-field"><span>{translate(locale, 'notes').toLocaleUpperCase(locale)}</span><textarea bind:value={draftNotes} rows="5" placeholder={translate(locale, 'notesPlaceholder')}></textarea></label>
       </div>
 
       <footer>
-        <button class="secondary-action" onclick={closeEditor} type="button">СКАСУВАТИ</button>
-        <button class="primary-action" onclick={() => void saveEditor()} type="button">ЗБЕРЕГТИ</button>
+        <button class="secondary-action" onclick={closeEditor} type="button">{translate(locale, 'cancel').toLocaleUpperCase(locale)}</button>
+        <button class="primary-action" onclick={() => void saveEditor()} type="button">{translate(locale, 'save').toLocaleUpperCase(locale)}</button>
       </footer>
     </section>
   </div>
