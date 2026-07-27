@@ -1,6 +1,8 @@
 import { defineConfig, devices } from '@playwright/test';
 
 const port = 4173;
+const appTests = /app\.spec\.ts/;
+const offlineTests = /pwa-offline\.spec\.ts/;
 
 export default defineConfig({
   testDir: './tests/e2e',
@@ -19,11 +21,12 @@ export default defineConfig({
     serviceWorkers: 'block',
   },
   expect: {
-    timeout: 8_000,
+    timeout: 10_000,
   },
   projects: [
     {
       name: 'desktop-chromium',
+      testMatch: appTests,
       use: {
         ...devices['Desktop Chrome'],
         viewport: { width: 1440, height: 900 },
@@ -31,16 +34,26 @@ export default defineConfig({
     },
     {
       name: 'smartphone-chromium',
+      testMatch: appTests,
       use: {
         ...devices['Pixel 7'],
       },
     },
+    {
+      name: 'pwa-offline-chromium',
+      testMatch: offlineTests,
+      use: {
+        ...devices['Desktop Chrome'],
+        viewport: { width: 1280, height: 800 },
+        serviceWorkers: 'allow',
+      },
+    },
   ],
   webServer: {
-    command: `pnpm --filter @save-slot/web dev --host 127.0.0.1 --port ${port}`,
+    command: `pnpm --filter @save-slot/web build && pnpm --filter @save-slot/web preview --host 127.0.0.1 --port ${port}`,
     url: `http://127.0.0.1:${port}`,
     reuseExistingServer: !process.env.CI,
-    timeout: 120_000,
+    timeout: 180_000,
     stdout: 'pipe',
     stderr: 'pipe',
   },
