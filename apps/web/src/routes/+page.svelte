@@ -3,13 +3,21 @@
   import {
     createCollectionEntry,
     type CollectionEntry,
+    type CollectionGrouping,
     type CollectionView,
     type ReleaseSnapshot,
     type SearchResult,
     type UserList,
   } from '@save-slot/domain';
   import { fixtureSearchResults } from '@save-slot/domain/fixtures';
-  import { detectLocale, type SupportedLocale } from '@save-slot/i18n';
+  import {
+    detectLocale,
+    formatMessage,
+    translate,
+    type MessageKey,
+    type MessageValues,
+    type SupportedLocale,
+  } from '@save-slot/i18n';
   import { sortSearchResults, type SearchSort } from '@save-slot/providers';
   import {
     createCollectionRepository,
@@ -25,6 +33,9 @@
 
   type Tab = 'search' | 'collection' | 'discovery' | 'settings';
   type LibraryCacheState = 'loading' | 'ready' | 'saved' | 'unavailable' | 'error';
+  type LocalizedStatus =
+    | { key: MessageKey; values: MessageValues }
+    | { text: string };
 
   const client = new CatalogClient();
   let repository: CollectionRepository;
@@ -40,7 +51,7 @@
   let filtersOpen = $state(false);
   let loading = $state(false);
   let loadingMore = $state(false);
-  let statusText = $state('Підготовка локальної колекції…');
+  let statusMessage = $state<LocalizedStatus>({ key: 'preparingCollection', values: {} });
   let results = $state<SearchResult[]>([]);
   let nextCursor = $state<string | null>(null);
   let totalSearchResults = $state(0);
@@ -52,10 +63,17 @@
   let activeListId = $state('');
   let snapshots = $state<Map<string, ReleaseSnapshot>>(new Map());
   let collectionView = $state<CollectionView>('rows');
+  let collectionGrouping = $state<CollectionGrouping>('none');
   let locale = $state<SupportedLocale>('uk');
   let libraryCacheState = $state<LibraryCacheState>('loading');
-  let libraryCacheMessage = $state('Підключення до локального файлу колекції…');
+  let libraryCacheMessage = $state('');
   let importInput: HTMLInputElement;
+
+  let statusText = $derived.by(() =>
+    'text' in statusMessage
+      ? statusMessage.text
+      : formatMessage(locale, statusMessage.key, statusMessage.values),
+  );
 
   let releaseResults = $derived.by(() =>
     results.flatMap((result) =>
@@ -87,6 +105,14 @@
     const releaseId = selected?.releases[0]?.id;
     return releaseId ? (entries.find((entry) => entry.releaseId === releaseId) ?? null) : null;
   });
+
+  function setStatus(key: MessageKey, values: MessageValues = {}): void {
+    statusMessage = { key, values };
+  }
+
+  function setRawStatus(text: string): void {
+    statusMessage = { text };
+  }
 
   function wait(milliseconds: number, signal?: AbortSignal): Promise<void> {
     return new Promise((resolve, reject) => {
@@ -190,6 +216,7 @@
     if (!lists.some((list) => list.id === activeListId)) activeListId = defaultList.id;
     const activeList = lists.find((list) => list.id === activeListId) ?? defaultList;
     collectionView = activeList.preferredView;
+    collectionGrouping = activeList.groupBy;
     const pairs = await Promise.all(
       entries.map(async (entry) => [entry.releaseId, await repository.getSnapshot(entry.releaseId)] as const),
     );
@@ -207,16 +234,20 @@
     loading = true;
     nextCursor = null;
     totalSearchResults = 0;
-    statusText = 'Формую нову випадкову кросплатформну добірку…';
+    setStatus('buildingDiscovery');
     selected = null;
     try {
       const items = await client.discovery(36, request.signal);
       await reveal(items, request.signal);
       totalSearchResults = items.length;
-      statusText = `Готово: ${items.length} ігор, ${items.flatMap((item) => item.releases).length} релізів.`;
+      setStatus('discoveryReady', {
+        games: items.length,
+        releases: items.flatMap((item) => item.releases).length,
+      });
     } catch (error) {
       if (!request.signal.aborted) {
-        statusText = error instanceof Error ? error.message : 'Не вдалося сформувати добірку.';
+        if (error instanceof Error) setRawStatus(error.message);
+        else setStatus('discoveryError');
       }
     } finally {
       if (activeRequest === request) loading = false;
@@ -237,7 +268,7 @@
     nextCursor = null;
     totalSearchResults = 0;
     selected = null;
-    statusText = `Шукаю «${query.trim()}»…`;
+    setStatus('searchingFor', { query: query.trim() });
     try {
       const page = await client.searchPage(
         {
@@ -253,14 +284,19 @@
       nextCursor = page.nextCursor ?? null;
       totalSearchResults = page.total;
       const releaseCount = page.items.flatMap((item) => item.releases).length;
-      statusText = page.items.length
-        ? `Показано ${results.length} із ${page.total} ігор, ${releaseCount} платформних релізів.`
-        : nextCursor
-          ? 'Поточна сторінка не має прийнятих обкладинок. Можна продовжити пошук.'
-          : 'За поточним запитом нічого не знайдено.';
+      if (page.items.length) {
+        setStatus('searchShown', {
+          shown: results.length,
+          total: page.total,
+          releases: releaseCount,
+        });
+      } else {
+        setStatus('noSearchResults');
+      }
     } catch (error) {
       if (!request.signal.aborted) {
-        statusText = error instanceof Error ? error.message : 'Пошук завершився помилкою.';
+        if (error instanceof Error) setRawStatus(error.message);
+        else setStatus('searchError');
       }
     } finally {
       if (activeRequest === request) loading = false;
@@ -273,7 +309,7 @@
     activeRequest?.abort();
     activeRequest = request;
     loadingMore = true;
-    statusText = 'Дозавантажую наступні результати…';
+    setStatus('loadingMore');
     try {
       const page = await client.searchPage(
         {
@@ -289,10 +325,11 @@
       await appendReveal(page.items, request.signal);
       nextCursor = page.nextCursor ?? null;
       totalSearchResults = Math.max(totalSearchResults, page.total);
-      statusText = `Показано ${results.length} із ${totalSearchResults} ігор.`;
+      setStatus('gamesShown', { shown: results.length, total: totalSearchResults });
     } catch (error) {
       if (!request.signal.aborted) {
-        statusText = error instanceof Error ? error.message : 'Не вдалося дозавантажити результати.';
+        if (error instanceof Error) setRawStatus(error.message);
+        else setStatus('loadMoreError');
       }
     } finally {
       loadingMore = false;
@@ -399,13 +436,13 @@
     await repository.putEntry(entry);
     await refreshCollectionState();
     snapshots = new Map(snapshots).set(release.id, { game: result.game, release });
-    statusText = `${result.game.title} — ${release.platform.name} додано до колекції.`;
+    setStatus('addedToCollection', { title: result.game.title, platform: release.platform.name });
   }
 
   async function removeEntry(entry: CollectionEntry): Promise<void> {
     await repository.deleteEntry(entry.id);
     await refreshCollectionState();
-    statusText = 'Запис видалено з колекції.';
+    setStatus('entryRemoved');
   }
 
   async function updateEntry(
@@ -425,12 +462,13 @@
     };
     await repository.putEntry(updated);
     await refreshCollectionState();
+    setStatus('entrySaved');
   }
 
   async function setEntryLists(entry: CollectionEntry, listIds: string[]): Promise<void> {
     await repository.setEntryLists(entry.id, listIds);
     await refreshCollectionState();
-    statusText = 'Належність до списків оновлено.';
+    setStatus('listMembershipUpdated');
   }
 
   function changeActiveList(listId: string): void {
@@ -438,6 +476,7 @@
     if (!list) return;
     activeListId = list.id;
     collectionView = list.preferredView;
+    collectionGrouping = list.groupBy;
   }
 
   async function createList(name: string, preset: UserList['preset']): Promise<void> {
@@ -451,7 +490,7 @@
       const existing = lists.find((list) => list.preset === preset);
       if (existing) {
         changeActiveList(existing.id);
-        statusText = `Список «${existing.name}» уже існує.`;
+        setStatus('listAlreadyExists');
         return;
       }
     }
@@ -460,7 +499,8 @@
     await refreshCollectionState();
     activeListId = list.id;
     collectionView = list.preferredView;
-    statusText = `Створено список «${list.name}».`;
+    collectionGrouping = list.groupBy;
+    setStatus('listMembershipUpdated');
   }
 
   async function deleteList(list: UserList): Promise<void> {
@@ -470,21 +510,37 @@
     await refreshCollectionState();
     activeListId = defaultList.id;
     collectionView = defaultList.preferredView;
-    statusText = `Список «${list.name}» видалено. Ігри залишились у колекції.`;
+    collectionGrouping = defaultList.groupBy;
+    setStatus('listDeleted');
+  }
+
+  async function activeCollectionList(): Promise<UserList> {
+    return (
+      lists.find((candidate) => candidate.id === activeListId) ??
+      lists.find((candidate) => candidate.preset === 'collection') ??
+      (await ensureDefaultList(repository))
+    );
   }
 
   async function changeCollectionView(view: CollectionView): Promise<void> {
     collectionView = view;
-    const list =
-      lists.find((candidate) => candidate.id === activeListId) ??
-      lists.find((candidate) => candidate.preset === 'collection') ??
-      (await ensureDefaultList(repository));
-    const updated: UserList = {
+    const list = await activeCollectionList();
+    await repository.putList({
       ...list,
       preferredView: view,
       updatedAt: new Date().toISOString(),
-    };
-    await repository.putList(updated);
+    });
+    await refreshCollectionState();
+  }
+
+  async function changeCollectionGrouping(grouping: CollectionGrouping): Promise<void> {
+    collectionGrouping = grouping;
+    const list = await activeCollectionList();
+    await repository.putList({
+      ...list,
+      groupBy: grouping,
+      updatedAt: new Date().toISOString(),
+    });
     await refreshCollectionState();
   }
 
@@ -506,12 +562,20 @@
       await repository.importData(JSON.parse(await file.text()));
       activeListId = '';
       await loadCollection();
-      statusText = 'Колекцію відновлено з резервної копії.';
+      setStatus('collectionRestored');
     } catch (error) {
-      statusText = error instanceof Error ? error.message : 'Не вдалося імпортувати колекцію.';
+      if (error instanceof Error) setRawStatus(error.message);
+      else setStatus('collectionImportError');
     } finally {
       (event.currentTarget as HTMLInputElement).value = '';
     }
+  }
+
+  function changeLocale(value: SupportedLocale): void {
+    locale = value;
+    localStorage.setItem('save-slot-locale', value);
+    document.documentElement.lang = value;
+    if (query.trim()) scheduleSuggestions();
   }
 
   function changeTab(tab: Tab): void {
@@ -535,6 +599,7 @@
 
     void (async () => {
       locale = detectLocale(localStorage.getItem('save-slot-locale'));
+      document.documentElement.lang = locale;
       repository = createCollectionRepository();
       await loadCollection();
       await loadDiscovery();
@@ -551,7 +616,7 @@
 </script>
 
 <svelte:head>
-  <title>Save Slot — пошук і колекція ігор</title>
+  <title>{translate(locale, 'appName')} — {translate(locale, 'search')} / {translate(locale, 'collection')}</title>
 </svelte:head>
 
 <div class="app-shell">
@@ -569,11 +634,11 @@
       {selected}
     />
 
-    <nav class="side-navigation" aria-label="Основна навігація">
-      <button class:active={activeTab === 'search'} onclick={() => changeTab('search')} type="button">ПОШУК</button>
-      <button class:active={activeTab === 'collection'} onclick={() => changeTab('collection')} type="button">КОЛЕКЦІЯ</button>
-      <button onclick={() => changeTab('discovery')} type="button">НОВА ДОБІРКА</button>
-      <button class:active={activeTab === 'settings'} onclick={() => changeTab('settings')} type="button">ПАРАМЕТРИ</button>
+    <nav class="side-navigation" aria-label={translate(locale, 'appName')}>
+      <button class:active={activeTab === 'search'} onclick={() => changeTab('search')} type="button">{translate(locale, 'search').toLocaleUpperCase(locale)}</button>
+      <button class:active={activeTab === 'collection'} onclick={() => changeTab('collection')} type="button">{translate(locale, 'collection').toLocaleUpperCase(locale)}</button>
+      <button onclick={() => changeTab('discovery')} type="button">{translate(locale, 'newSelection').toLocaleUpperCase(locale)}</button>
+      <button class:active={activeTab === 'settings'} onclick={() => changeTab('settings')} type="button">{translate(locale, 'settings').toLocaleUpperCase(locale)}</button>
     </nav>
   </aside>
 
@@ -595,7 +660,7 @@
                 onblur={() => setTimeout(() => (suggestionsOpen = false), 140)}
                 onfocus={() => (suggestionsOpen = suggestions.length > 0)}
                 oninput={scheduleSuggestions}
-                placeholder="Назва гри, серія, розробник…"
+                placeholder={translate(locale, 'searchPlaceholder')}
                 type="search"
               />
             </label>
@@ -611,34 +676,34 @@
               </div>
             {/if}
           </div>
-          <button class="primary-button" disabled={loading} type="submit">ЗНАЙТИ</button>
+          <button class="primary-button" disabled={loading} type="submit">{translate(locale, 'searchAction').toLocaleUpperCase(locale)}</button>
         </form>
 
         <div class="toolbar-row">
           <button class="secondary-button" onclick={() => (filtersOpen = !filtersOpen)} type="button">
-            ФІЛЬТРИ {filtersOpen ? '▲' : '▼'}
+            {translate(locale, filtersOpen ? 'filtersOpen' : 'filtersClosed').toLocaleUpperCase(locale)}
           </button>
           <button class="secondary-button" disabled={loading} onclick={() => void loadDiscovery()} type="button">
-            ВИПАДКОВА ДОБІРКА
+            {translate(locale, 'randomSelection').toLocaleUpperCase(locale)}
           </button>
           {#if filtersOpen}
             <label>
-              ПЛАТФОРМА
+              {translate(locale, 'platform').toLocaleUpperCase(locale)}
               <select onchange={(event) => changePlatform((event.currentTarget as HTMLSelectElement).value)} value={platformId}>
-                <option value="all">Усі платформи</option>
+                <option value="all">{translate(locale, 'allPlatforms')}</option>
                 {#each platformOptions as platform}
                   <option value={platform.id}>{platform.name}</option>
                 {/each}
               </select>
             </label>
             <label>
-              СОРТУВАННЯ
+              {translate(locale, 'sort').toLocaleUpperCase(locale)}
               <select onchange={(event) => changeSort((event.currentTarget as HTMLSelectElement).value as SearchSort)} value={sort}>
-                <option value="relevance">Точність збігу</option>
-                <option value="rating">Рейтинг гравців</option>
-                <option value="votes">Кількість оцінок</option>
-                <option value="year">Рік</option>
-                <option value="title">Назва</option>
+                <option value="relevance">{translate(locale, 'relevance')}</option>
+                <option value="rating">{translate(locale, 'playerRating')}</option>
+                <option value="votes">{translate(locale, 'ratingCount')}</option>
+                <option value="year">{translate(locale, 'releaseYear')}</option>
+                <option value="title">{translate(locale, 'title')}</option>
               </select>
             </label>
           {/if}
@@ -653,10 +718,10 @@
       <section>
         <div class="results-heading">
           <div>
-            <p>КАТАЛОГ РЕЛІЗІВ</p>
-            <h1>{query.trim() ? `Результати: ${query.trim()}` : 'Випадкова добірка'}</h1>
+            <p>{translate(locale, 'releaseCatalogue').toLocaleUpperCase(locale)}</p>
+            <h1>{query.trim() ? formatMessage(locale, 'searchResults', { query: query.trim() }) : translate(locale, 'randomSelection')}</h1>
           </div>
-          <span>{filteredResults.length} РЕЛІЗІВ</span>
+          <span>{filteredResults.length} {locale === 'uk' ? 'РЕЛІЗІВ' : 'RELEASES'}</span>
         </div>
 
         {#if filteredResults.length}
@@ -675,17 +740,17 @@
           </div>
         {:else if !loading && !nextCursor}
           <div class="empty-results">
-            <strong>НІЧОГО НЕ ЗНАЙДЕНО</strong>
-            <span>Змініть запит або платформу.</span>
+            <strong>{translate(locale, 'noResultsTitle').toLocaleUpperCase(locale)}</strong>
+            <span>{translate(locale, 'changeSearchOrPlatform')}</span>
           </div>
         {/if}
 
         {#if nextCursor && query.trim()}
           <div class="load-more-row">
             <button class="secondary-button" disabled={loadingMore} onclick={() => void loadMore()} type="button">
-              {loadingMore ? 'ЗАВАНТАЖЕННЯ…' : 'ПОКАЗАТИ ЩЕ'}
+              {translate(locale, loadingMore ? 'loading' : 'showMore').toLocaleUpperCase(locale)}
             </button>
-            <span>{results.length} / {totalSearchResults} ІГОР</span>
+            <span>{formatMessage(locale, 'gamesCounter', { shown: results.length, total: totalSearchResults }).toLocaleUpperCase(locale)}</span>
           </div>
         {/if}
       </section>
@@ -693,50 +758,46 @@
       <CollectionPanel
         {activeListId}
         {entries}
+        groupBy={collectionGrouping}
         {lists}
-        onCreateList={(name, preset) => void createList(name, preset)}
-        onDeleteList={(list) => void deleteList(list)}
+        {locale}
+        onCreateList={createList}
+        onDeleteList={deleteList}
+        onGroupByChange={changeCollectionGrouping}
         onListChange={changeActiveList}
-        onRemove={(entry) => void removeEntry(entry)}
+        onRemove={removeEntry}
         onSelect={(snapshot) => void selectSnapshot(snapshot)}
-        onSetEntryLists={(entry, listIds) => void setEntryLists(entry, listIds)}
-        onUpdate={(entry, patch) => void updateEntry(entry, patch)}
-        onViewChange={(view) => void changeCollectionView(view)}
+        onSetEntryLists={setEntryLists}
+        onUpdate={updateEntry}
+        onViewChange={changeCollectionView}
         {snapshots}
         view={collectionView}
       />
     {:else}
       <section class="settings-panel">
-        <p class="settings-eyebrow">ЗАСТОСУНОК</p>
-        <h1>Параметри</h1>
+        <p class="settings-eyebrow">{translate(locale, 'application').toLocaleUpperCase(locale)}</p>
+        <h1>{translate(locale, 'settings')}</h1>
         <div class="settings-grid">
           <label>
-            <span>МОВА ІНТЕРФЕЙСУ</span>
+            <span>{translate(locale, 'interfaceLanguage').toLocaleUpperCase(locale)}</span>
             <select
-              onchange={(event) => {
-                locale = (event.currentTarget as HTMLSelectElement).value as SupportedLocale;
-                localStorage.setItem('save-slot-locale', locale);
-              }}
+              onchange={(event) => changeLocale((event.currentTarget as HTMLSelectElement).value as SupportedLocale)}
               value={locale}
             >
-              <option value="uk">Українська</option>
-              <option value="en">English</option>
+              <option value="uk">{translate(locale, 'languageUkrainian')}</option>
+              <option value="en">{translate(locale, 'languageEnglish')}</option>
             </select>
           </label>
           <div class="settings-card">
-            <span>ЛОКАЛЬНІ ДАНІ</span>
-            <p>
-              Робоча копія зберігається в IndexedDB, а вся колекція автоматично дублюється у
-              <code>.save-slot-data/library.json</code> всередині папки проєкту. Попередня версія файла
-              зберігається як <code>library.backup.json</code>.
-            </p>
+            <span>{translate(locale, 'localData').toLocaleUpperCase(locale)}</span>
+            <p>{translate(locale, 'localDataDescription')}</p>
             <div class:problem={libraryCacheState === 'error' || libraryCacheState === 'unavailable'} class="cache-status">
               <span>{libraryCacheState === 'saved' || libraryCacheState === 'ready' ? '●' : '○'}</span>
-              <small>{libraryCacheMessage}</small>
+              <small>{libraryCacheMessage || translate(locale, 'preparingCollection')}</small>
             </div>
             <div class="settings-actions">
-              <button class="primary-button" onclick={() => void exportCollection()} type="button">ЕКСПОРТ JSON</button>
-              <button class="secondary-button" onclick={() => importInput.click()} type="button">ІМПОРТ JSON</button>
+              <button class="primary-button" onclick={() => void exportCollection()} type="button">{translate(locale, 'exportJson').toLocaleUpperCase(locale)}</button>
+              <button class="secondary-button" onclick={() => importInput.click()} type="button">{translate(locale, 'importJson').toLocaleUpperCase(locale)}</button>
               <input bind:this={importInput} accept="application/json,.json" hidden onchange={importCollection} type="file" />
             </div>
           </div>
@@ -747,11 +808,11 @@
   </main>
 </div>
 
-<nav class="mobile-navigation" aria-label="Мобільна навігація">
-  <button class:active={activeTab === 'search'} onclick={() => changeTab('search')} type="button">ПОШУК</button>
-  <button class:active={activeTab === 'collection'} onclick={() => changeTab('collection')} type="button">КОЛЕКЦІЯ</button>
-  <button onclick={() => changeTab('discovery')} type="button">ДОБІРКА</button>
-  <button class:active={activeTab === 'settings'} onclick={() => changeTab('settings')} type="button">ПАРАМЕТРИ</button>
+<nav class="mobile-navigation" aria-label={translate(locale, 'appName')}>
+  <button class:active={activeTab === 'search'} onclick={() => changeTab('search')} type="button">{translate(locale, 'search').toLocaleUpperCase(locale)}</button>
+  <button class:active={activeTab === 'collection'} onclick={() => changeTab('collection')} type="button">{translate(locale, 'collection').toLocaleUpperCase(locale)}</button>
+  <button onclick={() => changeTab('discovery')} type="button">{translate(locale, 'discovery').toLocaleUpperCase(locale)}</button>
+  <button class:active={activeTab === 'settings'} onclick={() => changeTab('settings')} type="button">{translate(locale, 'settings').toLocaleUpperCase(locale)}</button>
 </nav>
 
 <style>
