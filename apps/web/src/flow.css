@@ -1,0 +1,31 @@
+.game-grid,
+.collection-items.cartridges {
+  direction: ltr !important;
+}
+
+.game-card,
+.collection-items.cartridges .collection-item {
+  direction: ltr !important;
+}
+
+.game-card {
+  animation-name: reveal-left-to-right !important;
+}
+
+@keyframes reveal-left-to-right {
+  from {
+    opacity: 0;
+    transform: translate3d(-28px, 0, 0) scale(0.965);
+  }
+
+  to {
+    opacity: 1;
+    transform: translate3d(0, 0, 0) scale(1);
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .game-card {
+    animation: none !important;
+  }
+}
