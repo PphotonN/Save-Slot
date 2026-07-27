@@ -65,6 +65,35 @@ packages/
   ps1-scene/    Rigid PS1 slot and cartridge scene contracts
 ```
 
+## Quick launch
+
+### Windows
+
+Double-click:
+
+```text
+START_SAVE_SLOT.bat
+```
+
+The launcher:
+
+- checks Node.js and pnpm/Corepack;
+- creates `apps/web/.env` and `apps/api/.dev.vars` when missing;
+- installs dependencies on the first launch;
+- opens the Worker and web application in separate terminal windows;
+- opens `http://localhost:5173` in the default browser.
+
+Close both terminal windows to stop the local application.
+
+### Linux and macOS
+
+```bash
+chmod +x start-save-slot.sh
+./start-save-slot.sh
+```
+
+Press `Ctrl+C` to stop both processes.
+
 ## Local development
 
 Requirements:
