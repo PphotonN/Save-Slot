@@ -50,7 +50,8 @@ export class CatalogClient {
         if (request.platformId) url.searchParams.set('platform', request.platformId);
         const response = await fetch(url, { signal });
         if (!response.ok) throw new Error(`Search API returned HTTP ${response.status}`);
-        return verifiedReleaseResults(searchResponseSchema.parse(await response.json()).items);
+        const verified = verifiedReleaseResults(searchResponseSchema.parse(await response.json()).items);
+        if (verified.length) return verified;
       } catch (error) {
         if (signal?.aborted) throw error;
       }
@@ -68,7 +69,8 @@ export class CatalogClient {
         url.searchParams.set('locale', browserLocale());
         const response = await fetch(url, { signal });
         if (!response.ok) throw new Error(`Discovery API returned HTTP ${response.status}`);
-        return verifiedReleaseResults(searchResponseSchema.parse(await response.json()).items);
+        const verified = verifiedReleaseResults(searchResponseSchema.parse(await response.json()).items);
+        if (verified.length) return verified;
       } catch (error) {
         if (signal?.aborted) throw error;
       }
