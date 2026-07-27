@@ -1,4 +1,6 @@
+import type { SearchResult } from '@save-slot/domain';
 import { fixtureSearchResults } from '@save-slot/domain/fixtures';
+import { normalizePlatformIdentity } from '@save-slot/domain/platforms';
 import {
   FixtureProvider,
   searchWithFallback,
@@ -76,9 +78,58 @@ function shuffled<T>(items: T[]): T[] {
   return result;
 }
 
+function normalizeResultPlatforms(result: SearchResult): SearchResult {
+  const releases = result.releases.map((release) => {
+    const identity = normalizePlatformIdentity(release.platform.name);
+    return {
+      ...release,
+      platform: {
+        ...release.platform,
+        id: identity.id,
+        family: identity.family,
+        kind: identity.kind,
+      },
+      media: release.media.map((asset) => ({
+        ...asset,
+        ...(asset.platformId ? { platformId: identity.id } : {}),
+      })),
+    };
+  });
+  return {
+    ...result,
+    game: {
+      ...result.game,
+      releaseIds: releases.map((release) => release.id),
+    },
+    releases,
+  };
+}
+
+function normalizePage(page: SearchPage): SearchPage {
+  return {
+    ...page,
+    items: page.items.map(normalizeResultPlatforms),
+  };
+}
+
+function filterPageByPlatform(page: SearchPage, platformId?: string): SearchPage {
+  if (!platformId) return page;
+  const items = page.items
+    .map((result) => {
+      const releases = result.releases.filter((release) => release.platform.id === platformId);
+      return {
+        ...result,
+        game: { ...result.game, releaseIds: releases.map((release) => release.id) },
+        releases,
+      };
+    })
+    .filter((result) => result.releases.length > 0);
+  return { ...page, items };
+}
+
 function mergePages(pages: SearchPage[]): SearchPage {
   const items = new Map<string, SearchPage['items'][number]>();
-  for (const page of pages) {
+  for (const page of pages.map(normalizePage)) {
     for (const item of page.items) {
       const existing = items.get(item.game.id);
       if (!existing) {
@@ -90,6 +141,7 @@ function mergePages(pages: SearchPage[]): SearchPage {
       );
       items.set(item.game.id, {
         ...existing,
+        game: { ...existing.game, releaseIds: [...releases.keys()] },
         releases: [...releases.values()],
         relevance: Math.max(existing.relevance, item.relevance),
         providers: [...new Set([...existing.providers, ...item.providers])],
@@ -109,15 +161,16 @@ async function searchCatalogue(
   limit: number,
   signal: AbortSignal,
 ): Promise<SearchPage> {
-  const request = {
-    query,
-    locale,
-    limit,
-    ...(platformId ? { platformId } : {}),
-  };
-  const online = await searchWithFallback([wikidataProvider], request, signal);
+  const request = { query, locale, limit };
+  const online = filterPageByPlatform(
+    normalizePage(await searchWithFallback([wikidataProvider], request, signal)),
+    platformId,
+  );
   if (online.items.length) return online;
-  const fallback = await fixtureProvider.search(request, signal);
+  const fallback = filterPageByPlatform(
+    normalizePage(await fixtureProvider.search(request, signal)),
+    platformId,
+  );
   return mergePages([online, fallback]);
 }
 
