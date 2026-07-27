@@ -2,12 +2,14 @@ import { afterEach, describe, expect, it, vi } from 'vitest';
 import { createCollectionRepository, createDefaultList } from './browser';
 
 afterEach(() => {
+  vi.useRealTimers();
   vi.restoreAllMocks();
   vi.unstubAllGlobals();
 });
 
 describe('project file mirrored repository', () => {
   it('restores through the cache endpoint and mirrors collection changes', async () => {
+    vi.useFakeTimers();
     const dispatchEvent = vi.fn();
     const fetchMock = vi
       .fn<typeof fetch>()
@@ -30,6 +32,7 @@ describe('project file mirrored repository', () => {
     const repository = createCollectionRepository();
     const list = createDefaultList();
     await repository.putList(list);
+    await vi.advanceTimersByTimeAsync(150);
 
     expect(fetchMock).toHaveBeenNthCalledWith(
       1,
