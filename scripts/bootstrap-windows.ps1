@@ -20,6 +20,15 @@ function Write-Step([string]$Message) {
   Write-Host ('[SETUP] ' + $Message) -ForegroundColor Cyan
 }
 
+function Add-LocalRuntimeToPath {
+  $parts = @($NodeRoot, $PnpmRoot)
+  foreach ($part in $parts) {
+    if (($env:Path -split ';') -notcontains $part) {
+      $env:Path = $part + ';' + $env:Path
+    }
+  }
+}
+
 function Get-NodeArchitecture {
   $architecture = $env:PROCESSOR_ARCHITEW6432
   if ([string]::IsNullOrWhiteSpace($architecture)) {
@@ -39,6 +48,7 @@ function Test-ExactVersion([string]$Executable, [string]$ExpectedVersion) {
   }
 
   try {
+    Add-LocalRuntimeToPath
     $actual = (& $Executable --version 2>$null).Trim().TrimStart([char]'v')
     return $actual -eq $ExpectedVersion
   } catch {
@@ -90,6 +100,7 @@ function Install-PortableNode {
   Move-Item -LiteralPath $extractedDirectory -Destination $NodeRoot
   Remove-Item -Recurse -Force -ErrorAction SilentlyContinue $extractRoot
   Remove-Item -Force -ErrorAction SilentlyContinue $archivePath
+  Add-LocalRuntimeToPath
 
   if (-not (Test-ExactVersion $NodeExe $NodeVersion)) {
     throw 'Portable Node.js validation failed after extraction.'
@@ -97,6 +108,8 @@ function Install-PortableNode {
 }
 
 function Install-LocalPnpm {
+  Add-LocalRuntimeToPath
+
   if (Test-ExactVersion $PnpmCmd $PnpmVersion) {
     Write-Step ('Local pnpm ' + $PnpmVersion + ' is ready.')
     return
@@ -117,8 +130,9 @@ function Install-LocalPnpm {
     $env:npm_config_prefix = $previousPrefix
   }
 
+  Add-LocalRuntimeToPath
   if (-not (Test-ExactVersion $PnpmCmd $PnpmVersion)) {
-    throw 'Local pnpm validation failed after installation.'
+    throw ('Local pnpm validation failed. Expected executable: ' + $PnpmCmd)
   }
 }
 
@@ -148,7 +162,7 @@ function Ensure-LocalConfiguration {
 
 function Install-ProjectDependencies {
   Write-Step 'Installing or updating Save Slot dependencies...'
-  $env:Path = $NodeRoot + ';' + $PnpmRoot + ';' + $env:Path
+  Add-LocalRuntimeToPath
 
   Push-Location $ProjectRoot
   try {
@@ -169,6 +183,8 @@ try {
   } else {
     Write-Step ('Local Node.js ' + $NodeVersion + ' is ready.')
   }
+
+  Add-LocalRuntimeToPath
 
   if (-not (Test-Path -LiteralPath $NpmCmd)) {
     throw 'npm.cmd is missing from the portable Node.js runtime.'
