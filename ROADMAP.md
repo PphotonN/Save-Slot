@@ -49,6 +49,7 @@ Exit criteria:
 
 - [x] Implement runtime schemas for `Game`, `Release`, `MediaAsset`, `Rating`, `CollectionEntry` and `UserList`.
 - [x] Implement canonical/source IDs.
+- [x] Implement canonical platform normalization across provider labels.
 - [x] Implement IndexedDB database and version boundary.
 - [x] Implement collection CRUD.
 - [x] Implement versioned JSON export/import.
@@ -58,33 +59,38 @@ Exit criteria:
 
 Exit criteria:
 
-- [x] users can create and manage fixture collection entries offline;
+- [x] users can create and manage collection entries offline;
 - [x] export/restore produces an equivalent collection;
 - [x] collection entries always reference a release.
 
 ## Phase 3 — Aggregation Worker
 
-**Status:** contracts and fixture implementation available
+**Status:** first production provider pipeline implemented
 
 - [x] Define normalized API routes and schemas.
 - [x] Add provider adapter interface.
-- [ ] Implement Wikidata adapter.
+- [x] Implement Wikidata Action API adapter without SPARQL.
+- [x] Add localized labels, descriptions, dates, platforms and external ID extraction.
+- [x] Normalize provider platform labels at the API boundary.
+- [x] Add request timeouts, abort propagation and partial provider results.
+- [ ] Add Worker cache and persistent online detail lookup.
 - [ ] Implement IGDB adapter after credential and terms review.
 - [ ] Implement MobyGames/RAWG adapters only after licensing review.
-- [ ] Implement provider cache, timeouts and error categories.
 - [x] Implement baseline canonical merge and deduplication contracts.
 - [x] Add provider-status endpoint.
-- [x] Add representative fixture coverage for PC, console, handheld and retro games.
+- [x] Add representative fixture fallback for PC, console, handheld and retro games.
 
 Exit criteria:
 
-- [ ] search returns normalized production data from at least two providers;
+- [x] search returns normalized live Wikidata catalogue data;
+- [x] media enrichment can combine additional provider data with the canonical release;
 - [x] provider interfaces support partial results instead of a global failure;
-- [x] provider IDs remain traceable in the canonical model.
+- [x] provider IDs remain traceable in the canonical model;
+- [ ] arbitrary online detail routes survive Worker restarts through cache/persistence.
 
 ## Phase 4 — Search and discovery
 
-**Status:** fixture-backed vertical slice implemented
+**Status:** live online vertical slice implemented
 
 - [x] Build right-side search workspace.
 - [ ] Add search suggestions.
@@ -92,6 +98,7 @@ Exit criteria:
 - [x] Add compact filter drawer.
 - [ ] Add paging or cursor-based loading in the web interface.
 - [x] Add random discovery selection per session/startup.
+- [x] Generate discovery from randomized live search seeds with fixture fallback.
 - [x] Keep filtering, sorting and rendering independent.
 - [x] Implement stable keyed cards and progressive reveal.
 - [x] Add right-to-left visual reveal for newly accepted cards.
@@ -106,24 +113,26 @@ Exit criteria:
 
 ## Phase 5 — Release-specific media and details
 
-**Status:** basic fixture presentation implemented; production media pipeline pending
+**Status:** first live media pipeline implemented
 
 - [x] Keep selected information attached to a concrete release.
-- [x] Show release-specific fixture cover, platform, year and player rating.
+- [x] Show release-specific cover, platform, year and player rating when available.
 - [ ] Implement release selection for multi-release games.
-- [ ] Implement verified production cover pipeline.
-- [ ] Implement Libretro media adapter behind the Worker.
-- [ ] Implement Steam PC enrichment behind the Worker.
-- [ ] Add screenshot gallery.
-- [ ] Add separate sourced rating panels.
+- [x] Implement verified cover media contracts.
+- [x] Implement Libretro `Named_Boxarts` adapter behind the Worker.
+- [x] Implement Steam PC enrichment behind the Worker.
+- [x] Add Steam screenshot gallery for linked PC releases.
+- [x] Add official Steam description precedence for linked PC releases.
+- [ ] Add separate sourced rating panels in the interface.
 - [x] Add description precedence contracts.
-- [ ] Add provider/source diagnostics to the interface.
+- [ ] Add provider/source diagnostics and attribution to the interface.
+- [ ] Add additional console/retro screenshot sources.
 - [ ] Add custom cover override editor for personal collection entries.
 
 Exit criteria:
 
-- [x] a selected fixture release shows the correct platform and cover;
-- [ ] screenshots are labelled by platform where necessary;
+- [x] a selected release shows its concrete platform and best available cover;
+- [ ] screenshots are visibly labelled by platform and source;
 - [x] the media model does not treat screenshots or banners as covers;
 - [x] ratings retain source and sample size in the domain model.
 
@@ -173,8 +182,9 @@ Exit criteria:
 
 - [x] Add Ukrainian and English UI catalogues.
 - [x] Add locale detection and manual language selection foundation.
+- [x] Send active/browser locale to the aggregation API.
 - [x] Prefer localized descriptions through the domain helper.
-- [x] Add original/localized description toggle for available fixture text.
+- [x] Add original/localized description toggle for available text.
 - [ ] Implement external translation adapter and local cache.
 - [ ] Add privacy disclosure before external translation.
 - [ ] Add stale-translation invalidation by source-text hash.
@@ -192,6 +202,7 @@ Exit criteria:
 
 - [x] Add installable manifest and service worker.
 - [x] Define initial application-shell cache/update behavior.
+- [x] Cache prerendered application routes for offline startup.
 - [x] Keep collection data local and independent from the catalogue cache.
 - [x] Add safe-area-aware mobile navigation.
 - [ ] Test offline collection access in browsers and installed mode.
