@@ -7,7 +7,7 @@ $ErrorActionPreference = 'Stop'
 $ProgressPreference = 'SilentlyContinue'
 [Net.ServicePointManager]::SecurityProtocol = [Net.SecurityProtocolType]::Tls12
 
-$NodeVersion = '20.19.0'
+$NodeVersion = '24.18.0'
 $PnpmVersion = '10.14.0'
 $RuntimeRoot = Join-Path $ProjectRoot '.runtime'
 $NodeRoot = Join-Path $RuntimeRoot 'node'
@@ -15,6 +15,7 @@ $PnpmRoot = Join-Path $RuntimeRoot 'pnpm'
 $NodeExe = Join-Path $NodeRoot 'node.exe'
 $NpmCmd = Join-Path $NodeRoot 'npm.cmd'
 $PnpmCmd = Join-Path $PnpmRoot 'pnpm.cmd'
+$script:NodeRuntimeChanged = $false
 
 function Write-Step([string]$Message) {
   Write-Host ('[SETUP] ' + $Message) -ForegroundColor Cyan
@@ -101,6 +102,7 @@ function Install-PortableNode {
   Remove-Item -Recurse -Force -ErrorAction SilentlyContinue $extractRoot
   Remove-Item -Force -ErrorAction SilentlyContinue $archivePath
   Add-LocalRuntimeToPath
+  $script:NodeRuntimeChanged = $true
 
   if (-not (Test-ExactVersion $NodeExe $NodeVersion)) {
     throw 'Portable Node.js validation failed after extraction.'
@@ -164,9 +166,15 @@ function Install-ProjectDependencies {
   Write-Step 'Installing or updating Save Slot dependencies...'
   Add-LocalRuntimeToPath
 
+  $installArguments = @('install', '--prefer-offline', '--frozen-lockfile=false')
+  if ($script:NodeRuntimeChanged) {
+    $installArguments += '--force'
+    Write-Step 'Node.js changed; rebuilding project dependencies for the new runtime...'
+  }
+
   Push-Location $ProjectRoot
   try {
-    & $PnpmCmd install --prefer-offline --frozen-lockfile=false
+    & $PnpmCmd @installArguments
     if ($LASTEXITCODE -ne 0) {
       throw ('pnpm install failed. Exit code: ' + $LASTEXITCODE)
     }
