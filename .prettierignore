@@ -6,3 +6,12 @@ dist
 coverage
 .wrangler
 legacy
+app-v*.js
+styles-v*.css
+index.html
+core.js
+data
+tests
+assets
+manifest.webmanifest
+sw.js
