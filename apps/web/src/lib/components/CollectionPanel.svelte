@@ -3,8 +3,11 @@
     getPlayerRating,
     getPrimaryCover,
     type CollectionEntry,
+    type CollectionGrouping,
     type CollectionStatus,
     type CollectionView,
+    type CopyCompleteness,
+    type CopyCondition,
     type Ownership,
     type ReleaseFormat,
     type ReleaseSnapshot,
@@ -18,7 +21,9 @@
     activeListId: string;
     snapshots: Map<string, ReleaseSnapshot>;
     view: CollectionView;
+    groupBy: CollectionGrouping;
     onViewChange: (view: CollectionView) => void | Promise<void>;
+    onGroupByChange: (grouping: CollectionGrouping) => void | Promise<void>;
     onListChange: (listId: string) => void;
     onCreateList: (name: string, preset: UserList['preset']) => void | Promise<void>;
     onDeleteList: (list: UserList) => void | Promise<void>;
@@ -29,6 +34,7 @@
   }
 
   type CollectionSort = 'recent' | 'title' | 'platform' | 'year' | 'rating' | 'priority';
+  type Item = { entry: CollectionEntry; snapshot: ReleaseSnapshot };
 
   let {
     entries,
@@ -36,7 +42,9 @@
     activeListId,
     snapshots,
     view,
+    groupBy,
     onViewChange,
+    onGroupByChange,
     onListChange,
     onCreateList,
     onDeleteList,
@@ -51,6 +59,7 @@
   let platformFilter = $state('all');
   let sort = $state<CollectionSort>('recent');
   let editingId = $state<string | null>(null);
+  let editorError = $state('');
   let listCreatorOpen = $state(false);
   let newListName = $state('');
   let newListPreset = $state<UserList['preset']>('custom');
@@ -58,12 +67,16 @@
   let draftStatus = $state<CollectionStatus>('backlog');
   let draftOwnership = $state<Ownership>('none');
   let draftFormat = $state<ReleaseFormat>('unknown');
+  let draftBoxCondition = $state<CopyCondition>('unknown');
+  let draftMediaCondition = $state<CopyCondition>('unknown');
+  let draftCompleteness = $state<CopyCompleteness>('unknown');
   let draftRating = $state('');
   let draftPriority = $state(3);
   let draftQuantity = $state(1);
   let draftAcquiredAt = $state('');
   let draftPrice = $state('');
   let draftCurrency = $state('UAH');
+  let draftCustomCoverUrl = $state('');
   let draftTags = $state('');
   let draftNotes = $state('');
   let draftListIds = $state<string[]>([]);
@@ -94,6 +107,27 @@
     disc: 'Диск',
     download: 'Завантаження',
     streaming: 'Стримінг',
+    unknown: 'Не вказано',
+  };
+
+  const conditionLabels: Record<CopyCondition, string> = {
+    mint: 'Як нова',
+    excellent: 'Відмінний',
+    good: 'Добрий',
+    fair: 'Задовільний',
+    poor: 'Поганий',
+    damaged: 'Пошкоджений',
+    unknown: 'Не вказано',
+  };
+
+  const completenessLabels: Record<CopyCompleteness, string> = {
+    sealed: 'Запечатана',
+    complete: 'Повний комплект',
+    'missing-manual': 'Без інструкції',
+    'missing-inserts': 'Без вкладень',
+    'box-only': 'Лише коробка',
+    'media-only': 'Лише носій',
+    loose: 'Без коробки',
     unknown: 'Не вказано',
   };
 
@@ -141,10 +175,7 @@
   let allItems = $derived(
     scopedEntries
       .map((entry) => ({ entry, snapshot: snapshots.get(entry.releaseId) }))
-      .filter(
-        (item): item is { entry: CollectionEntry; snapshot: ReleaseSnapshot } =>
-          Boolean(item.snapshot),
-      ),
+      .filter((item): item is Item => Boolean(item.snapshot)),
   );
 
   let platformOptions = $derived.by(() =>
@@ -158,7 +189,7 @@
       if (statusFilter !== 'all' && entry.status !== statusFilter) return false;
       if (platformFilter !== 'all' && snapshot.release.platform.id !== platformFilter) return false;
       if (!normalizedQuery) return true;
-      const haystack = [
+      return [
         snapshot.game.title,
         snapshot.release.title,
         snapshot.release.platform.name,
@@ -167,11 +198,18 @@
         ...entry.tags,
       ]
         .join(' ')
-        .toLocaleLowerCase('uk-UA');
-      return haystack.includes(normalizedQuery);
+        .toLocaleLowerCase('uk-UA')
+        .includes(normalizedQuery);
     });
 
     return [...filtered].sort((left, right) => {
+      if (groupBy === 'platform') {
+        const platformOrder = left.snapshot.release.platform.name.localeCompare(
+          right.snapshot.release.platform.name,
+          'uk-UA',
+        );
+        if (platformOrder) return platformOrder;
+      }
       const leftRating = left.entry.personalRating ?? getPlayerRating(left.snapshot.release)?.score ?? -1;
       const rightRating = right.entry.personalRating ?? getPlayerRating(right.snapshot.release)?.score ?? -1;
       switch (sort) {
@@ -199,10 +237,7 @@
     editingId
       ? (entries
           .map((entry) => ({ entry, snapshot: snapshots.get(entry.releaseId) }))
-          .find(
-            (item): item is { entry: CollectionEntry; snapshot: ReleaseSnapshot } =>
-              item.entry.id === editingId && Boolean(item.snapshot),
-          ) ?? null)
+          .find((item): item is Item => item.entry.id === editingId && Boolean(item.snapshot)) ?? null)
       : null,
   );
 
@@ -210,17 +245,28 @@
     return lists.filter((list) => belongsToList(entry, list)).map((list) => list.id);
   }
 
+  function beginsPlatformGroup(index: number, item: Item): boolean {
+    if (groupBy !== 'platform') return false;
+    if (index === 0) return true;
+    return items[index - 1]?.snapshot.release.platform.id !== item.snapshot.release.platform.id;
+  }
+
   function openEditor(entry: CollectionEntry): void {
     editingId = entry.id;
+    editorError = '';
     draftStatus = entry.status;
     draftOwnership = entry.ownership;
     draftFormat = entry.format;
+    draftBoxCondition = entry.boxCondition;
+    draftMediaCondition = entry.mediaCondition;
+    draftCompleteness = entry.completeness;
     draftRating = entry.personalRating == null ? '' : String(entry.personalRating);
     draftPriority = entry.priority;
     draftQuantity = entry.quantity;
     draftAcquiredAt = entry.acquiredAt ?? '';
     draftPrice = entry.purchasePrice == null ? '' : String(entry.purchasePrice);
     draftCurrency = entry.currency ?? 'UAH';
+    draftCustomCoverUrl = entry.customCoverUrl ?? '';
     draftTags = entry.tags.join(', ');
     draftNotes = entry.notes;
     draftListIds = effectiveListIds(entry);
@@ -228,6 +274,7 @@
 
   function closeEditor(): void {
     editingId = null;
+    editorError = '';
   }
 
   function toggleDraftList(list: UserList): void {
@@ -242,6 +289,17 @@
 
   async function saveEditor(): Promise<void> {
     if (!editingItem) return;
+    const customCoverUrl = draftCustomCoverUrl.trim();
+    if (customCoverUrl) {
+      try {
+        const parsed = new URL(customCoverUrl);
+        if (!['http:', 'https:'].includes(parsed.protocol)) throw new Error('Unsupported protocol');
+      } catch {
+        editorError = 'Власна обкладинка повинна мати коректну адресу HTTP або HTTPS.';
+        return;
+      }
+    }
+
     const tags = [...new Set(
       draftTags
         .split(',')
@@ -252,35 +310,35 @@
       status: draftStatus,
       ownership: draftOwnership,
       format: draftFormat,
+      boxCondition: draftBoxCondition,
+      mediaCondition: draftMediaCondition,
+      completeness: draftCompleteness,
       personalRating: draftRating === '' ? null : Math.min(100, Math.max(0, Number(draftRating))),
       priority: Math.min(5, Math.max(1, Math.round(draftPriority))),
       quantity: Math.max(1, Math.round(draftQuantity)),
+      acquiredAt: draftAcquiredAt || null,
+      purchasePrice: draftPrice === '' ? null : Math.max(0, Number(draftPrice)),
+      currency: draftPrice === '' ? null : draftCurrency.trim().toLocaleUpperCase('en-US').slice(0, 3) || 'UAH',
+      customCoverUrl: customCoverUrl || null,
       tags,
       notes: draftNotes.trim(),
     };
-    if (draftAcquiredAt) patch.acquiredAt = draftAcquiredAt;
-    if (draftPrice !== '') {
-      patch.purchasePrice = Math.max(0, Number(draftPrice));
-      patch.currency = draftCurrency.trim().toLocaleUpperCase('en-US').slice(0, 3) || 'UAH';
-    }
     const collectionId = lists.find((list) => list.preset === 'collection')?.id;
-    const listIds = [...new Set([
-      ...(collectionId ? [collectionId] : []),
-      ...draftListIds,
-    ])];
+    const listIds = [...new Set([...(collectionId ? [collectionId] : []), ...draftListIds])];
+    editorError = '';
     await onUpdate(editingItem.entry, patch);
     await onSetEntryLists(editingItem.entry, listIds);
     closeEditor();
   }
 
   async function createList(): Promise<void> {
-    const fallbackName = newListPreset === 'wishlist'
-      ? 'Бажане'
-      : newListPreset === 'backlog'
-        ? 'Заплановано'
-        : 'Новий список';
-    const name = newListName.trim() || fallbackName;
-    await onCreateList(name, newListPreset);
+    const fallbackName =
+      newListPreset === 'wishlist'
+        ? 'Бажане'
+        : newListPreset === 'backlog'
+          ? 'Заплановано'
+          : 'Новий список';
+    await onCreateList(newListName.trim() || fallbackName, newListPreset);
     newListName = '';
     newListPreset = 'custom';
     listCreatorOpen = false;
@@ -322,11 +380,7 @@
   <div class="list-strip">
     <div class="list-tabs" aria-label="Списки колекції">
       {#each orderedLists as list (list.id)}
-        <button
-          class:active={list.id === activeList?.id}
-          onclick={() => onListChange(list.id)}
-          type="button"
-        >
+        <button class:active={list.id === activeList?.id} onclick={() => onListChange(list.id)} type="button">
           <span>{list.name}</span><small>{listCount(list)}</small>
         </button>
       {/each}
@@ -341,33 +395,33 @@
 
   {#if listCreatorOpen}
     <div class="list-creator">
-      <label><span>ТИП</span><select bind:value={newListPreset}><option value="custom">Власний</option><option value="wishlist">Бажане</option><option value="backlog">Заплановано</option></select></label>
+      <label>
+        <span>ТИП</span>
+        <select bind:value={newListPreset}>
+          <option value="custom">Власний</option>
+          <option value="wishlist">Бажане</option>
+          <option value="backlog">Заплановано</option>
+        </select>
+      </label>
       <label><span>НАЗВА</span><input bind:value={newListName} placeholder={presetLabels[newListPreset]} /></label>
       <button class="primary-action" onclick={() => void createList()} type="button">СТВОРИТИ</button>
     </div>
   {/if}
 
   <div class="collection-toolbar">
-    <label class="library-search">
-      <span>&gt;</span>
-      <input bind:value={query} placeholder="Пошук у списку…" type="search" />
-    </label>
+    <label class="library-search"><span>&gt;</span><input bind:value={query} placeholder="Пошук у списку…" type="search" /></label>
     <label>
       <span>СТАТУС</span>
       <select bind:value={statusFilter}>
         <option value="all">Усі статуси</option>
-        {#each Object.entries(statusLabels) as [status, label]}
-          <option value={status}>{label}</option>
-        {/each}
+        {#each Object.entries(statusLabels) as [status, label]}<option value={status}>{label}</option>{/each}
       </select>
     </label>
     <label>
       <span>ПЛАТФОРМА</span>
       <select bind:value={platformFilter}>
         <option value="all">Усі платформи</option>
-        {#each platformOptions as platform}
-          <option value={platform.id}>{platform.name}</option>
-        {/each}
+        {#each platformOptions as platform}<option value={platform.id}>{platform.name}</option>{/each}
       </select>
     </label>
     <label>
@@ -379,6 +433,13 @@
         <option value="year">Рік</option>
         <option value="rating">Оцінка</option>
         <option value="priority">Пріоритет</option>
+      </select>
+    </label>
+    <label>
+      <span>ГРУПУВАННЯ</span>
+      <select onchange={(event) => onGroupByChange((event.currentTarget as HTMLSelectElement).value as CollectionGrouping)} value={groupBy}>
+        <option value="none">Без групування</option>
+        <option value="platform">За платформою</option>
       </select>
     </label>
   </div>
@@ -393,36 +454,35 @@
           platformFilter = 'all';
         }}
         type="button"
-      >
-        СКИНУТИ ФІЛЬТРИ
-      </button>
+      >СКИНУТИ ФІЛЬТРИ</button>
     {/if}
   </div>
 
   {#if scopedEntries.length === 0}
-    <div class="empty-collection">
-      <strong>СПИСОК ПОРОЖНІЙ</strong>
-      <span>Додайте гру до цього списку через редактор запису.</span>
-    </div>
+    <div class="empty-collection"><strong>СПИСОК ПОРОЖНІЙ</strong><span>Додайте гру до цього списку через редактор запису.</span></div>
   {:else if items.length === 0}
-    <div class="empty-collection">
-      <strong>НЕМАЄ ЗБІГІВ</strong>
-      <span>Змініть пошук або фільтри колекції.</span>
-    </div>
+    <div class="empty-collection"><strong>НЕМАЄ ЗБІГІВ</strong><span>Змініть пошук або фільтри колекції.</span></div>
   {:else}
     <div class:cartridges={view === 'cartridges'} class:list={view === 'list'} class:rows={view === 'rows'} class="collection-items">
-      {#each items as { entry, snapshot } (entry.id)}
+      {#each items as item, index (item.entry.id)}
+        {@const entry = item.entry}
+        {@const snapshot = item.snapshot}
         {@const cover = getPrimaryCover(snapshot.release)}
         {@const rating = getPlayerRating(snapshot.release)}
+        {#if beginsPlatformGroup(index, item)}
+          <div class="platform-group-heading">
+            <strong>{snapshot.release.platform.name}</strong>
+            <span>{items.filter((candidate) => candidate.snapshot.release.platform.id === snapshot.release.platform.id).length}</span>
+          </div>
+        {/if}
         <article class="collection-item">
           <button class="collection-cover" onclick={() => onSelect(snapshot)} type="button">
-            {#if cover}
-              <img src={entry.customCoverUrl || cover.url} alt={`Боксарт ${snapshot.game.title}`} loading="lazy" />
+            {#if entry.customCoverUrl || cover}
+              <img src={entry.customCoverUrl || cover?.url} alt={`Боксарт ${snapshot.game.title}`} loading="lazy" />
             {:else}
               <span>{snapshot.game.title.slice(0, 2).toLocaleUpperCase()}</span>
             {/if}
           </button>
-
           <div class="collection-copy">
             <button class="title-button" onclick={() => onSelect(snapshot)} type="button">{snapshot.game.title}</button>
             <p>{snapshot.release.platform.name} · {snapshot.release.year ?? '—'}</p>
@@ -430,12 +490,10 @@
               <span>ГРАВЦІ {rating ? `${Math.round(rating.score)}%` : '—'}</span>
               <span>МОЯ {entry.personalRating == null ? '—' : `${entry.personalRating}/100`}</span>
               <span>ПРІОРИТЕТ {entry.priority}/5</span>
+              {#if entry.completeness !== 'unknown'}<span>{completenessLabels[entry.completeness]}</span>{/if}
             </div>
-            {#if entry.tags.length}
-              <div class="entry-tags">{#each entry.tags.slice(0, 3) as tag}<span>{tag}</span>{/each}</div>
-            {/if}
+            {#if entry.tags.length}<div class="entry-tags">{#each entry.tags.slice(0, 3) as tag}<span>{tag}</span>{/each}</div>{/if}
           </div>
-
           <label class="mini-field status-field">
             <span>СТАТУС</span>
             <select
@@ -446,7 +504,6 @@
               {#each Object.entries(statusLabels) as [status, label]}<option value={status}>{label}</option>{/each}
             </select>
           </label>
-
           <label class="mini-field rating-field">
             <span>МОЯ ОЦІНКА</span>
             <input
@@ -462,7 +519,6 @@
               value={entry.personalRating ?? ''}
             />
           </label>
-
           <div class="entry-actions">
             <button class="edit-entry" onclick={() => openEditor(entry)} type="button" aria-label="Редагувати запис">✎</button>
             <button class="remove-entry" onclick={() => onRemove(entry)} type="button" aria-label="Видалити">×</button>
@@ -485,16 +541,22 @@
         <button class="close-editor" onclick={closeEditor} type="button" aria-label="Закрити">×</button>
       </header>
 
+      {#if editorError}<div class="editor-error" role="alert">{editorError}</div>{/if}
+
       <div class="editor-grid">
         <label><span>СТАТУС</span><select bind:value={draftStatus}>{#each Object.entries(statusLabels) as [value, label]}<option {value}>{label}</option>{/each}</select></label>
         <label><span>ВОЛОДІННЯ</span><select bind:value={draftOwnership}>{#each Object.entries(ownershipLabels) as [value, label]}<option {value}>{label}</option>{/each}</select></label>
         <label><span>ФОРМАТ</span><select bind:value={draftFormat}>{#each Object.entries(formatLabels) as [value, label]}<option {value}>{label}</option>{/each}</select></label>
+        <label><span>СТАН КОРОБКИ</span><select bind:value={draftBoxCondition}>{#each Object.entries(conditionLabels) as [value, label]}<option {value}>{label}</option>{/each}</select></label>
+        <label><span>СТАН НОСІЯ</span><select bind:value={draftMediaCondition}>{#each Object.entries(conditionLabels) as [value, label]}<option {value}>{label}</option>{/each}</select></label>
+        <label><span>КОМПЛЕКТНІСТЬ</span><select bind:value={draftCompleteness}>{#each Object.entries(completenessLabels) as [value, label]}<option {value}>{label}</option>{/each}</select></label>
         <label><span>МОЯ ОЦІНКА</span><input bind:value={draftRating} min="0" max="100" placeholder="—" type="number" /></label>
         <label><span>ПРІОРИТЕТ 1–5</span><input bind:value={draftPriority} min="1" max="5" type="number" /></label>
         <label><span>КІЛЬКІСТЬ</span><input bind:value={draftQuantity} min="1" type="number" /></label>
         <label><span>ДАТА ПРИДБАННЯ</span><input bind:value={draftAcquiredAt} type="date" /></label>
         <label><span>ЦІНА</span><input bind:value={draftPrice} min="0" step="0.01" placeholder="—" type="number" /></label>
         <label><span>ВАЛЮТА</span><input bind:value={draftCurrency} maxlength="3" placeholder="UAH" /></label>
+
         <fieldset class="list-membership wide-field">
           <legend>СПИСКИ</legend>
           {#each orderedLists as list (list.id)}
@@ -509,6 +571,17 @@
             </label>
           {/each}
         </fieldset>
+
+        <label class="wide-field">
+          <span>ВЛАСНА ОБКЛАДИНКА</span>
+          <input bind:value={draftCustomCoverUrl} placeholder="https://…" type="url" />
+        </label>
+        {#if draftCustomCoverUrl}
+          <div class="custom-cover-preview wide-field">
+            <img src={draftCustomCoverUrl} alt="Попередній перегляд власної обкладинки" />
+            <button onclick={() => (draftCustomCoverUrl = '')} type="button">СКИНУТИ</button>
+          </div>
+        {/if}
         <label class="wide-field"><span>ТЕГИ ЧЕРЕЗ КОМУ</span><input bind:value={draftTags} placeholder="ретро, улюблене, запечатане" /></label>
         <label class="wide-field"><span>НОТАТКИ</span><textarea bind:value={draftNotes} rows="5" placeholder="Стан копії, комплектація, прогрес або інші примітки…"></textarea></label>
       </div>
@@ -527,7 +600,7 @@
   .collection-header p, .mini-field span, .collection-toolbar label > span, .entry-editor label > span, .entry-editor header p, .list-creator label > span, .list-membership legend { color: var(--accent-cool); font: 0.42rem/1.35 var(--pixel-font); }
   .collection-header h1 { margin: 0.35rem 0 0; font-size: clamp(1.45rem, 3vw, 2.35rem); }
   .collection-header h1 span { color: var(--muted); }
-  .view-switcher { display: flex; gap: 0.35rem; }
+  .view-switcher, .list-actions, .entry-actions { display: flex; gap: 0.35rem; }
   .view-switcher button { width: 42px; height: 42px; color: var(--muted-light); background: var(--panel); border: 1px solid var(--line); }
   .view-switcher button.active { color: #161303; background: var(--accent); border-color: var(--accent); }
 
@@ -536,13 +609,12 @@
   .list-tabs button { display: flex; flex: 0 0 auto; align-items: center; gap: 0.45rem; min-height: 40px; padding: 0.55rem 0.65rem; color: var(--muted-light); background: var(--panel); border: 1px solid var(--line); }
   .list-tabs button.active { color: #171402; background: var(--accent); border-color: var(--accent); }
   .list-tabs small { opacity: 0.72; }
-  .list-actions { display: flex; gap: 0.35rem; }
   .list-actions button { min-height: 40px; padding: 0.55rem 0.7rem; color: var(--accent); font: 0.4rem/1.2 var(--pixel-font); background: var(--panel); border: 1px solid var(--line); }
   .list-actions .delete-list { width: 40px; padding: 0; color: var(--danger); font-size: 1.1rem; }
   .list-creator { display: grid; grid-template-columns: 180px minmax(180px, 1fr) auto; align-items: end; gap: 0.55rem; margin-bottom: 0.65rem; padding: 0.7rem; background: var(--panel); border: 1px solid var(--line); }
   .list-creator label { display: grid; gap: 0.3rem; }
 
-  .collection-toolbar { display: grid; grid-template-columns: minmax(210px, 1.5fr) repeat(3, minmax(145px, 0.75fr)); gap: 0.55rem; margin-bottom: 0.65rem; }
+  .collection-toolbar { display: grid; grid-template-columns: minmax(210px, 1.4fr) repeat(4, minmax(135px, 0.7fr)); gap: 0.55rem; margin-bottom: 0.65rem; }
   .collection-toolbar label { display: grid; gap: 0.3rem; }
   .collection-toolbar select, .collection-toolbar input, .entry-editor select, .entry-editor input, .entry-editor textarea, .list-creator select, .list-creator input { width: 100%; min-width: 0; min-height: 42px; padding: 0.55rem; color: var(--text); background: #090d0e; border: 1px solid var(--line); }
   .library-search { position: relative; align-content: end; }
@@ -554,6 +626,9 @@
   .empty-collection { display: grid; min-height: 280px; place-content: center; gap: 0.75rem; color: var(--muted); text-align: center; border: 1px dashed var(--line); }
   .empty-collection strong { color: var(--text); font: 0.62rem/1.4 var(--pixel-font); }
   .collection-items { display: grid; gap: 0.65rem; }
+  .platform-group-heading { grid-column: 1 / -1; display: flex; align-items: center; justify-content: space-between; margin-top: 0.55rem; padding: 0.65rem 0.75rem; background: #0a0f11; border: 1px solid var(--line-strong); }
+  .platform-group-heading strong { color: var(--accent-cool); font: 0.5rem/1.35 var(--pixel-font); }
+  .platform-group-heading span { color: var(--muted); font: 0.42rem/1.3 var(--pixel-font); }
   .collection-item { position: relative; min-width: 0; background: rgba(15, 21, 23, 0.86); border: 1px solid var(--line); }
   .collection-cover, .title-button, .remove-entry, .edit-entry { color: inherit; background: transparent; border: 0; }
   .collection-cover { overflow: hidden; padding: 0; background: #090d0e; }
@@ -566,7 +641,7 @@
   .entry-tags span { color: var(--accent-cool); }
   .mini-field { display: grid; gap: 0.38rem; }
   .mini-field select, .mini-field input { width: 100%; min-width: 0; min-height: 38px; padding: 0.45rem; color: var(--text); background: #090d0e; border: 1px solid var(--line); }
-  .entry-actions { display: flex; align-items: center; justify-content: flex-end; gap: 0.2rem; }
+  .entry-actions { align-items: center; justify-content: flex-end; }
   .remove-entry, .edit-entry { display: grid; width: 34px; height: 34px; place-items: center; font-size: 1.05rem; }
   .remove-entry { color: var(--danger); }
   .edit-entry { color: var(--accent-cool); }
@@ -584,11 +659,12 @@
   .collection-items.cartridges .entry-actions { position: absolute; top: 0.8rem; right: 0.8rem; background: rgba(5, 8, 9, 0.9); border: 1px solid var(--line); }
 
   .editor-backdrop { position: fixed; z-index: 500; inset: 0; display: grid; place-items: center; padding: 1rem; background: rgba(2, 4, 5, 0.82); backdrop-filter: blur(5px); }
-  .entry-editor { width: min(800px, 100%); max-height: min(90vh, 880px); overflow-y: auto; padding: 1rem; background: #0d1315; border: 1px solid var(--line-strong); box-shadow: 0 30px 100px rgba(0, 0, 0, 0.65); }
+  .entry-editor { width: min(840px, 100%); max-height: min(92vh, 920px); overflow-y: auto; padding: 1rem; background: #0d1315; border: 1px solid var(--line-strong); box-shadow: 0 30px 100px rgba(0, 0, 0, 0.65); }
   .entry-editor header { display: flex; align-items: flex-start; justify-content: space-between; gap: 1rem; margin-bottom: 1rem; }
   .entry-editor h2 { margin: 0.3rem 0; font-size: clamp(1.2rem, 3vw, 1.8rem); }
   .entry-editor header span { color: var(--muted); }
   .close-editor { width: 40px; height: 40px; color: var(--danger); font-size: 1.4rem; background: var(--panel); border: 1px solid var(--line); }
+  .editor-error { margin-bottom: 0.7rem; padding: 0.7rem; color: #ffd6d2; background: rgba(231, 111, 101, 0.14); border: 1px solid var(--danger); }
   .editor-grid { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 0.65rem; }
   .entry-editor label { display: grid; align-content: start; gap: 0.35rem; }
   .entry-editor textarea { resize: vertical; line-height: 1.45; }
@@ -599,15 +675,17 @@
   .list-membership input { width: 18px; min-height: 18px; padding: 0; }
   .list-membership label > span { color: var(--text); font: inherit; }
   .list-membership small { color: var(--muted); }
+  .custom-cover-preview { display: grid; grid-template-columns: 90px minmax(0, 1fr); align-items: center; gap: 0.7rem; padding: 0.65rem; background: #090d0e; border: 1px solid var(--line); }
+  .custom-cover-preview img { width: 82px; height: 108px; object-fit: cover; border: 1px solid var(--line-strong); }
+  .custom-cover-preview button { justify-self: start; min-height: 38px; padding: 0.55rem 0.7rem; color: var(--danger); font: 0.4rem/1.2 var(--pixel-font); background: var(--panel); border: 1px solid var(--line); }
   .entry-editor footer { display: flex; justify-content: flex-end; gap: 0.55rem; margin-top: 1rem; }
   .primary-action, .secondary-action { min-height: 44px; padding: 0.65rem 0.9rem; font: 0.46rem/1.3 var(--pixel-font); }
   .primary-action { color: #161303; background: var(--accent); border: 1px solid var(--accent); }
   .secondary-action { color: var(--muted-light); background: var(--panel); border: 1px solid var(--line); }
 
-  @media (max-width: 1050px) {
-    .collection-toolbar { grid-template-columns: repeat(2, minmax(0, 1fr)); }
-  }
+  @media (max-width: 1180px) { .collection-toolbar { grid-template-columns: repeat(3, minmax(0, 1fr)); } }
   @media (max-width: 900px) {
+    .collection-toolbar { grid-template-columns: repeat(2, minmax(0, 1fr)); }
     .collection-items.list .collection-item, .collection-items.rows .collection-item { grid-template-columns: 64px minmax(0, 1fr) 72px; }
     .collection-items.list .collection-cover, .collection-items.rows .collection-cover { width: 58px; height: 76px; }
     .collection-items.list .status-field, .collection-items.list .rating-field, .collection-items.rows .status-field, .collection-items.rows .rating-field { display: none; }
