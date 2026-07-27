@@ -16,12 +16,17 @@
 - sourced rating panels with vote counts;
 - platform-release switcher for games returned with several releases;
 - layered online catalogue cache using memory, Cache API and an optional KV-compatible binding;
-- six-hour normalized search cache independent from sorting;
+- six-hour normalized search-pool cache independent from sorting and cursor;
+- 12-hour search-suggestion cache;
 - 30-day game and release detail cache;
 - stable cached `/v1/games/:id` and `/v1/releases/:id` routes for previously discovered online entities;
 - `/v1/cache` diagnostics endpoint and settings panel;
+- `/v1/suggestions` endpoint with title, platform and description context;
+- debounced search suggestions with stale-request cancellation;
+- bounded cursor paging with 18-game pages and a 40-game normalized pool;
+- stable page appending that keeps existing accepted cards mounted;
 - cached detail refresh when opening a game from the personal collection;
-- unit and integration tests for cache memory, KV-compatible persistence and detail routes.
+- unit and integration tests for cache memory, KV-compatible persistence, detail routes, provider cursors and accurate fixture totals.
 
 ### Changed
 
@@ -32,7 +37,9 @@
 - Wrangler is pinned to an exact version to prevent unexpected local runtime requirement changes;
 - the launcher waits for the library cache, API and web application before opening the browser;
 - discovery remains random while each discovered game and release is retained in the detail cache;
-- collection snapshots can be refreshed from cached normalized online metadata without blocking local display.
+- collection snapshots can be refreshed from cached normalized online metadata without blocking local display;
+- platform and sorting changes restart the search page boundary instead of mixing incompatible cursors;
+- catalogue cache diagnostics now show suggestion lifetime and search-pool size.
 
 ### Fixed
 
@@ -41,7 +48,9 @@
 - Wrangler failure under Node.js 20;
 - right-to-left cartridge row construction;
 - project library cache implementation not being used by the package root export;
-- online detail routes being limited to the small fixture catalogue.
+- online detail routes being limited to the small fixture catalogue;
+- provider aggregation dropping `nextCursor` and total metadata;
+- inaccurate offline search total when additional fixture pages remained.
 
 ### Verification note
 
