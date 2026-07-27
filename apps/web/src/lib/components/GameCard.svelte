@@ -1,16 +1,26 @@
 <script lang="ts">
   import { getPlayerRating, getPrimaryCover, type SearchResult } from '@save-slot/domain';
+  import { translate, type SupportedLocale } from '@save-slot/i18n';
 
   interface Props {
     result: SearchResult;
     selected: boolean;
     owned: boolean;
     revealIndex: number;
+    locale?: SupportedLocale;
     onSelect: () => void;
     onToggle: () => void;
   }
 
-  let { result, selected, owned, revealIndex, onSelect, onToggle }: Props = $props();
+  let {
+    result,
+    selected,
+    owned,
+    revealIndex,
+    locale = 'uk',
+    onSelect,
+    onToggle,
+  }: Props = $props();
   let imageFailed = $state(false);
   let release = $derived(result.releases[0]);
   let cover = $derived(release ? getPrimaryCover(release) : undefined);
@@ -20,81 +30,88 @@
     release?.id;
     imageFailed = false;
   });
-
-  function activate(event: KeyboardEvent) {
-    if (event.key !== 'Enter' && event.key !== ' ') return;
-    event.preventDefault();
-    onSelect();
-  }
 </script>
 
 <article
-  aria-label={`${result.game.title}, ${release?.platform.name ?? ''}`}
-  aria-pressed={selected}
   class:owned
   class:selected
   class="game-card"
-  onkeydown={activate}
-  onclick={onSelect}
-  role="button"
   style={`--reveal-index:${revealIndex}`}
-  tabindex="0"
 >
-  <div class="card-cartridge">
-    <div class="cover-frame">
-      {#if cover && !imageFailed}
-        <img
-          alt={`Боксарт ${result.game.title}`}
-          loading="lazy"
-          onerror={() => (imageFailed = true)}
-          src={cover.url}
-        />
-      {:else}
-        <div class="cover-fallback">{result.game.title.slice(0, 2).toLocaleUpperCase()}</div>
-      {/if}
-      <span class="platform-label">{release?.platform.name ?? 'Невідома платформа'}</span>
-      <button
-        aria-label={owned ? 'Видалити з колекції' : 'Додати до колекції'}
-        class:active={owned}
-        class="collection-toggle"
-        onclick={(event) => {
-          event.stopPropagation();
-          onToggle();
-        }}
-        type="button"
-      >
-        {owned ? '✓' : '+'}
-      </button>
+  <button
+    aria-label={`${result.game.title}, ${release?.platform.name ?? translate(locale, 'unknown')}`}
+    aria-pressed={selected}
+    class="card-select"
+    onclick={onSelect}
+    type="button"
+  >
+    <div class="card-cartridge">
+      <div class="cover-frame">
+        {#if cover && !imageFailed}
+          <img
+            alt={`${translate(locale, 'customCover')}: ${result.game.title}`}
+            loading="lazy"
+            onerror={() => (imageFailed = true)}
+            src={cover.url}
+          />
+        {:else}
+          <div class="cover-fallback">{result.game.title.slice(0, 2).toLocaleUpperCase(locale)}</div>
+        {/if}
+        <span class="platform-label">{release?.platform.name ?? translate(locale, 'unknown')}</span>
+      </div>
+      <div class="cartridge-foot"></div>
     </div>
-    <div class="cartridge-foot"></div>
-  </div>
 
-  <div class="card-copy">
-    <h2>{result.game.title}</h2>
-    <div class="card-meta">
-      <span>{release?.year ?? '—'}</span>
-      <span>{rating ? `${Math.round(rating.score)}%` : '—'}</span>
-      {#if rating?.votes}<span>{Intl.NumberFormat('uk-UA', { notation: 'compact' }).format(rating.votes)}</span>{/if}
+    <div class="card-copy">
+      <h2>{result.game.title}</h2>
+      <div class="card-meta">
+        <span>{release?.year ?? '—'}</span>
+        <span>{rating ? `${Math.round(rating.score)}%` : '—'}</span>
+        {#if rating?.votes}
+          <span>{Intl.NumberFormat(locale, { notation: 'compact' }).format(rating.votes)}</span>
+        {/if}
+      </div>
+      <div class="card-tags">
+        {#each result.game.genres.slice(0, 2) as genre}
+          <span>{genre}</span>
+        {/each}
+      </div>
     </div>
-    <div class="card-tags">
-      {#each result.game.genres.slice(0, 2) as genre}
-        <span>{genre}</span>
-      {/each}
-    </div>
-  </div>
+  </button>
+
+  <button
+    aria-label={translate(locale, owned ? 'removeFromCollection' : 'addToCollection')}
+    class:active={owned}
+    class="collection-toggle"
+    onclick={onToggle}
+    type="button"
+  >
+    {owned ? '✓' : '+'}
+  </button>
 </article>
 
 <style>
   .game-card {
+    position: relative;
     min-width: 0;
-    cursor: pointer;
     direction: ltr;
-    outline: none;
     animation: reveal-from-right 380ms cubic-bezier(0.2, 0.78, 0.2, 1) both;
     animation-delay: calc(var(--reveal-index) * 28ms);
   }
 
-  .game-card:focus-visible .card-cartridge,
+  .card-select {
+    display: block;
+    width: 100%;
+    padding: 0;
+    color: inherit;
+    text-align: left;
+    cursor: pointer;
+    background: transparent;
+    border: 0;
+    outline: none;
+  }
+
+  .card-select:focus-visible .card-cartridge,
   .game-card.selected .card-cartridge {
     border-color: var(--accent);
     box-shadow:
@@ -122,7 +139,7 @@
       0 13px 28px rgba(0, 0, 0, 0.34);
   }
 
-  .game-card:hover .card-cartridge {
+  .card-select:hover .card-cartridge {
     transform: perspective(680px) translateY(-4px) rotateY(1.2deg) rotateX(-0.8deg) scale(1.01);
   }
 
@@ -181,17 +198,22 @@
 
   .collection-toggle {
     position: absolute;
-    z-index: 3;
+    z-index: 5;
     top: 7px;
     right: 7px;
     display: grid;
-    width: 34px;
-    height: 34px;
+    width: 38px;
+    height: 38px;
     place-items: center;
     color: var(--text);
     font-size: 1.1rem;
-    background: rgba(7, 12, 13, 0.92);
+    background: rgba(7, 12, 13, 0.94);
     border: 1px solid var(--line-strong);
+  }
+
+  .collection-toggle:focus-visible {
+    outline: 2px solid var(--accent-cool);
+    outline-offset: 2px;
   }
 
   .collection-toggle.active {
