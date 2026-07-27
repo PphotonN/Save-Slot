@@ -1,10 +1,10 @@
 /// <reference lib="webworker" />
 
-import { build, files, version } from '$service-worker';
+import { build, files, prerendered, version } from '$service-worker';
 
 const worker = self as unknown as ServiceWorkerGlobalScope;
 const cacheName = `save-slot-${version}`;
-const applicationFiles = [...build, ...files];
+const applicationFiles = [...build, ...files, ...prerendered];
 
 worker.addEventListener('install', (event) => {
   event.waitUntil(
@@ -32,7 +32,12 @@ worker.addEventListener('fetch', (event) => {
 
   if (request.mode === 'navigate') {
     event.respondWith(
-      fetch(request).catch(async () => (await caches.match('/index.html')) ?? Response.error()),
+      fetch(request).catch(async () =>
+        (await caches.match(request)) ??
+        (await caches.match('/')) ??
+        (await caches.match('/index.html')) ??
+        Response.error(),
+      ),
     );
     return;
   }
