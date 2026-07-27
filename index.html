@@ -2,298 +2,118 @@
 <html lang="uk">
 <head>
   <meta charset="UTF-8" />
-  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
   <meta name="theme-color" content="#0b0e0d" />
-  <meta name="description" content="Save Slot — локальний пошуковик і менеджер списків відеоігор." />
+  <meta name="description" content="Save Slot — онлайн-пошук ігор і локальний менеджер списків." />
   <title>Save Slot</title>
+  <link rel="preconnect" href="https://www.wikidata.org" />
+  <link rel="preconnect" href="https://commons.wikimedia.org" />
+  <link rel="preconnect" href="https://shared.fastly.steamstatic.com" />
   <link rel="preconnect" href="https://fonts.googleapis.com" />
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
   <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=Press+Start+2P&display=swap" rel="stylesheet" />
   <link rel="manifest" href="manifest.webmanifest" />
   <link rel="icon" href="assets/icon.svg" type="image/svg+xml" />
-  <link rel="stylesheet" href="styles.css" />
+  <link rel="stylesheet" href="styles-v3.css" />
 </head>
 <body>
   <div class="scanlines" aria-hidden="true"></div>
-
   <header class="topbar">
-    <a class="brand" href="#top" aria-label="Save Slot — на головну">
-      <span class="brand-mark" aria-hidden="true">▣</span>
-      <span>SAVE SLOT</span>
-    </a>
-
-    <div class="data-status" id="dataStatus" title="Поточне джерело даних">
-      <span class="status-dot"></span>
-      <span id="dataStatusText">ДЕМО</span>
+    <a class="brand" href="#top"><span class="brand-mark">▣</span><span>SAVE SLOT</span></a>
+    <div class="source-state" id="sourceState" data-state="ready" title="Стан онлайн-джерел">
+      <span class="state-dot"></span><span id="sourceStateText">WIKIDATA ГОТОВА</span>
     </div>
-
-    <nav class="top-actions" aria-label="Основні дії">
+    <nav class="top-actions">
       <button class="pixel-button secondary compact" id="importButton" type="button">ІМПОРТ</button>
       <button class="pixel-button secondary compact" id="exportButton" type="button">ЕКСПОРТ</button>
-      <button class="pixel-button secondary compact" id="settingsButton" type="button">НАЛАШТУВАННЯ</button>
-      <button class="pixel-button compact" id="openLibraryButton" type="button">
-        СПИСОК <span class="counter" id="savedCount">0</span>
-      </button>
-      <input id="importInput" type="file" accept="application/json,.json,text/csv,.csv" hidden />
+      <button class="pixel-button secondary compact" id="settingsButton" type="button">ПАРАМЕТРИ</button>
+      <button class="pixel-button compact" id="libraryButton" type="button">СПИСОК <span class="counter" id="savedCount">0</span></button>
+      <input id="importInput" type="file" accept="application/json,.json" hidden />
     </nav>
   </header>
 
   <main id="top">
-    <section class="hero" aria-labelledby="pageTitle">
-      <p class="eyebrow">ЗНАЙДИ НАСТУПНУ ГРУ</p>
-      <h1 id="pageTitle">Пошук без зайвого шуму.</h1>
-      <p class="hero-copy">Фільтруй ігри за платформою, рейтингом гравців і тривалістю. Створюй локальні списки, редагуй їх та перенось між пристроями одним файлом.</p>
-
+    <section class="hero">
+      <p class="eyebrow">ОНЛАЙН-ПОШУК І МЕНЕДЖЕР</p>
+      <h1>Знайди гру.<br />Збережи вибір.</h1>
+      <p class="hero-copy">Каталог не зашитий у сайт: Save Slot шукає ігри у Wikidata, підтягує точні метадані та реальні Steam-відгуки, коли вони доступні.</p>
       <form class="search-panel" id="searchForm">
-        <label class="search-field">
-          <span class="sr-only">Назва гри або жанр</span>
-          <span class="prompt" aria-hidden="true">&gt;</span>
-          <input id="searchInput" type="search" placeholder="Введи назву або жанр..." autocomplete="off" />
-        </label>
-        <button class="pixel-button search-button" type="submit">ПОШУК</button>
+        <label class="search-field"><span class="prompt">&gt;</span><input id="searchInput" type="search" placeholder="Наприклад: Metroid Prime, Koudelka, Zelda..." autocomplete="off" required /></label>
+        <button class="pixel-button search-button" id="searchButton" type="submit">ШУКАТИ</button>
       </form>
-
-      <div class="quick-actions" aria-label="Швидкі режими">
-        <button class="chip-button" type="button" data-preset="short">ДО 10 ГОДИН</button>
-        <button class="chip-button" type="button" data-preset="hidden">ПРИХОВАНІ ПЕРЛИНИ</button>
-        <button class="chip-button" type="button" data-preset="top">НАЙВИЩИЙ РЕЙТИНГ</button>
-        <button class="chip-button" type="button" id="randomPickButton">ВИПАДКОВИЙ ВИБІР</button>
-      </div>
+      <div class="search-feedback" id="searchFeedback" aria-live="polite">Введи назву гри. Пошук виконується онлайн без API-ключа.</div>
     </section>
 
-    <section class="workspace" aria-label="Пошук ігор">
-      <aside class="filters" aria-label="Фільтри">
-        <div class="filter-heading">
-          <span>ФІЛЬТРИ</span>
-          <button id="resetFilters" class="text-button" type="button">СКИНУТИ</button>
-        </div>
-
-        <label class="control-group">
-          <span>ПЛАТФОРМА</span>
-          <select id="platformFilter"><option value="all">Усі платформи</option></select>
-        </label>
-
-        <label class="control-group">
-          <span>ЖАНР</span>
-          <select id="genreFilter"><option value="all">Усі жанри</option></select>
-        </label>
-
-        <label class="control-group">
-          <span>МІН. РЕЙТИНГ: <output id="ratingOutput">70</output></span>
-          <input id="ratingFilter" type="range" min="0" max="100" value="70" step="1" />
-        </label>
-
-        <label class="control-group">
-          <span>МІН. КІЛЬКІСТЬ ГОЛОСІВ</span>
-          <select id="votesFilter">
-            <option value="0">Будь-яка</option>
-            <option value="25">25+</option>
-            <option value="100">100+</option>
-            <option value="500">500+</option>
-            <option value="1000">1 000+</option>
-            <option value="5000">5 000+</option>
-          </select>
-        </label>
-
-        <label class="control-group">
-          <span>ТИП ТРИВАЛОСТІ</span>
-          <select id="durationModeFilter">
-            <option value="main">HLTB: сюжет</option>
-            <option value="mainPlus">HLTB: сюжет + додаткове</option>
-            <option value="completionist">HLTB: 100%</option>
-            <option value="rawgAverage">RAWG: середнє</option>
-          </select>
-        </label>
-
-        <label class="control-group">
-          <span>ТРИВАЛІСТЬ ДО</span>
-          <select id="lengthFilter">
-            <option value="all">Будь-яка</option>
-            <option value="5">5 годин</option>
-            <option value="10">10 годин</option>
-            <option value="20">20 годин</option>
-            <option value="40">40 годин</option>
-            <option value="80">80 годин</option>
-            <option value="150">150 годин</option>
-          </select>
-        </label>
-
+    <section class="workspace">
+      <aside class="filters">
+        <div class="filter-heading"><span>ФІЛЬТРИ</span><button class="text-button" id="resetFilters" type="button">СКИНУТИ</button></div>
+        <label class="control-group"><span>ПЛАТФОРМА</span><select id="platformFilter"><option value="all">Усі платформи</option></select></label>
+        <label class="control-group"><span>ЖАНР</span><select id="genreFilter"><option value="all">Усі жанри</option></select></label>
         <div class="year-grid">
           <label class="control-group"><span>РІК ВІД</span><input id="yearFromFilter" type="number" min="1970" max="2100" placeholder="1970" /></label>
           <label class="control-group"><span>РІК ДО</span><input id="yearToFilter" type="number" min="1970" max="2100" placeholder="2026" /></label>
         </div>
-
-        <label class="check-row"><input id="unknownDurationFilter" type="checkbox" checked /><span class="fake-check"></span><span>Показувати ігри без часу</span></label>
-        <label class="check-row"><input id="hiddenGemFilter" type="checkbox" /><span class="fake-check"></span><span>Тільки приховані перлини</span></label>
-        <label class="check-row"><input id="hideSavedFilter" type="checkbox" /><span class="fake-check"></span><span>Приховати вже додані</span></label>
+        <label class="control-group"><span>МІН. STEAM-РЕЙТИНГ</span><select id="ratingFilter"><option value="0">Будь-який</option><option value="70">70%+</option><option value="80">80%+</option><option value="90">90%+</option><option value="95">95%+</option></select></label>
+        <label class="control-group"><span>МІН. ВІДГУКІВ</span><select id="reviewsFilter"><option value="0">Будь-яка кількість</option><option value="100">100+</option><option value="1000">1 000+</option><option value="10000">10 000+</option><option value="100000">100 000+</option></select></label>
+        <label class="check-row"><input id="ratedOnlyFilter" type="checkbox" /><span class="fake-check"></span><span>Тільки з рейтингом гравців</span></label>
+        <label class="check-row"><input id="hideSavedFilter" type="checkbox" /><span class="fake-check"></span><span>Приховати додані</span></label>
       </aside>
 
       <div class="results-area">
         <div class="results-header">
-          <div>
-            <p class="eyebrow">РЕЗУЛЬТАТИ</p>
-            <h2 id="resultsTitle">Рекомендовані ігри</h2>
-            <p class="results-note" id="resultsNote"></p>
-          </div>
-          <label class="sort-control">
-            <span>СОРТУВАТИ</span>
-            <select id="sortSelect">
-              <option value="bayesian">Надійний рейтинг</option>
-              <option value="rating">Чистий рейтинг</option>
-              <option value="votes">Кількість голосів</option>
-              <option value="length">Тривалість</option>
-              <option value="year">Рік</option>
-              <option value="title">Назва</option>
-              <option value="random">Випадково</option>
-            </select>
-          </label>
+          <div><p class="eyebrow">РЕЗУЛЬТАТИ</p><h2 id="resultsTitle">Пошук ще не виконано</h2><p class="results-note" id="resultsNote">Wikidata → метадані · Steam → оцінка гравців</p></div>
+          <label class="sort-control"><span>СОРТУВАТИ</span><select id="sortSelect"><option value="relevance">Точність збігу</option><option value="trust">Надійний рейтинг</option><option value="rating">Відсоток позитивних</option><option value="reviews">Кількість відгуків</option><option value="year">Рік</option><option value="title">Назва</option></select></label>
         </div>
-
-        <div class="loading-panel" id="loadingPanel" hidden><span class="loader"></span><span>ЗАВАНТАЖЕННЯ КАТАЛОГУ...</span></div>
+        <div class="loading-panel" id="loadingPanel" hidden><span class="loader"></span><div><strong id="loadingTitle">ШУКАЮ У WIKIDATA...</strong><small id="loadingDetail">Отримую збіги та перевіряю типи об’єктів</small></div></div>
         <div class="game-grid" id="gameGrid" aria-live="polite"></div>
-        <p class="empty-state" id="emptyState" hidden>За цими фільтрами нічого не знайдено.</p>
-        <div class="load-more-wrap"><button class="pixel-button secondary" id="loadMoreButton" type="button" hidden>ЗАВАНТАЖИТИ ЩЕ</button></div>
+        <div class="empty-state" id="emptyState"><strong>Тут з’являться результати.</strong><span>Введи назву гри у полі вище.</span></div>
       </div>
     </section>
   </main>
 
   <dialog class="app-dialog wide" id="libraryDialog">
     <div class="dialog-shell">
-      <div class="dialog-header">
-        <div><p class="eyebrow">ЛОКАЛЬНЕ ЗБЕРЕЖЕННЯ</p><h2>Моя бібліотека</h2></div>
-        <button class="icon-button close-dialog" type="button" aria-label="Закрити">×</button>
-      </div>
-
+      <div class="dialog-header"><div><p class="eyebrow">ЛОКАЛЬНИЙ МЕНЕДЖЕР</p><h2>Мої списки</h2></div><button class="icon-button close-dialog" type="button">×</button></div>
       <div class="library-toolbar">
         <label class="control-group grow"><span>АКТИВНИЙ СПИСОК</span><select id="listSelect"></select></label>
         <button class="pixel-button secondary compact" id="newListButton" type="button">НОВИЙ</button>
         <button class="pixel-button secondary compact" id="duplicateListButton" type="button">КОПІЯ</button>
         <button class="pixel-button danger compact" id="deleteListButton" type="button">ВИДАЛИТИ</button>
       </div>
-
-      <label class="list-name-field"><span>НАЗВА СПИСКУ</span><input id="listNameInput" type="text" maxlength="80" /></label>
-
+      <label class="control-group"><span>НАЗВА СПИСКУ</span><input id="listNameInput" type="text" maxlength="80" /></label>
       <div class="stats-grid" id="listStats"></div>
-
-      <div class="library-filters">
-        <label class="control-group"><span>СТАТУС</span><select id="libraryStatusFilter"><option value="all">Усі</option></select></label>
-        <label class="control-group"><span>СОРТУВАННЯ</span>
-          <select id="librarySort">
-            <option value="manual">Власний порядок</option>
-            <option value="priority">Пріоритет</option>
-            <option value="status">Статус</option>
-            <option value="rating">Оцінка</option>
-            <option value="title">Назва</option>
-          </select>
-        </label>
-      </div>
-
+      <div class="library-filters"><label class="control-group"><span>СТАТУС</span><select id="libraryStatus"><option value="all">Усі</option><option value="planned">Заплановано</option><option value="playing">Граю</option><option value="completed">Пройдено</option><option value="mastered">100%</option><option value="paused">Відкладено</option><option value="dropped">Покинуто</option></select></label><label class="control-group"><span>СОРТУВАННЯ</span><select id="librarySort"><option value="manual">Власний порядок</option><option value="priority">Пріоритет</option><option value="status">Статус</option><option value="rating">Рейтинг</option><option value="title">Назва</option></select></label></div>
       <div class="saved-list" id="savedList"></div>
-      <p class="empty-state" id="emptyListState">Список порожній. Додай ігри з каталогу.</p>
-
-      <div class="dialog-footer wrap">
-        <button class="pixel-button secondary" id="exportCsvButton" type="button">CSV</button>
-        <button class="pixel-button secondary" id="exportActiveButton" type="button">JSON СПИСКУ</button>
-        <button class="pixel-button" id="exportAllButton" type="button">РЕЗЕРВНА КОПІЯ</button>
-      </div>
+      <div class="empty-state" id="emptyLibrary"><strong>Список порожній.</strong><span>Додай гру кнопкою «+» у результатах.</span></div>
+      <div class="dialog-footer"><button class="pixel-button secondary" id="exportActiveButton" type="button">JSON СПИСКУ</button><button class="pixel-button" id="exportAllButton" type="button">РЕЗЕРВНА КОПІЯ</button></div>
     </div>
   </dialog>
 
   <dialog class="app-dialog" id="gameDialog">
-    <div class="dialog-shell">
-      <div class="dialog-header">
-        <div><p class="eyebrow">КАРТКА ГРИ</p><h2 id="gameDialogTitle">Гра</h2></div>
-        <button class="icon-button close-dialog" type="button" aria-label="Закрити">×</button>
-      </div>
-      <div id="gameDialogContent"></div>
-    </div>
+    <div class="dialog-shell"><div class="dialog-header"><div><p class="eyebrow">КАРТКА ГРИ</p><h2 id="gameDialogTitle">Гра</h2></div><button class="icon-button close-dialog" type="button">×</button></div><div id="gameDialogContent"></div></div>
   </dialog>
 
   <dialog class="app-dialog" id="settingsDialog">
-    <form class="dialog-shell" id="settingsForm" method="dialog">
-      <div class="dialog-header">
-        <div><p class="eyebrow">ЛОКАЛЬНІ ПАРАМЕТРИ</p><h2>Налаштування</h2></div>
-        <button class="icon-button close-dialog" type="button" aria-label="Закрити">×</button>
-      </div>
-
-      <section class="settings-section">
-        <h3>Джерело каталогу</h3>
-        <label class="control-group"><span>РЕЖИМ</span>
-          <select id="providerSetting">
-            <option value="demo">Демонстраційний каталог</option>
-            <option value="rawg">RAWG API</option>
-          </select>
-        </label>
-        <label class="control-group"><span>RAWG API KEY</span><input id="rawgKeySetting" type="password" autocomplete="off" placeholder="Зберігається лише у цьому браузері" /></label>
-        <div class="inline-actions">
-          <button class="pixel-button secondary" id="testRawgButton" type="button">ПЕРЕВІРИТИ</button>
-          <a class="text-link" href="https://rawg.io/apidocs" target="_blank" rel="noreferrer">Отримати ключ RAWG ↗</a>
-        </div>
-        <p class="helper">GitHub Pages не має сервера, тому ключ зберігається тільки локально. Не використовуй тут секрети від інших сервісів.</p>
-      </section>
-
-      <section class="settings-section">
-        <h3>HowLongToBeat</h3>
-        <p class="helper">HLTB не має стабільного публічного API для прямої роботи з браузера. Час можна редагувати в картці гри або масово імпортувати CSV/JSON. Під час пошуку RAWG показується його середній playtime як окремий запасний показник.</p>
-        <button class="pixel-button secondary" id="importHltbButton" type="button">ІМПОРТ ЧАСУ HLTB</button>
-        <input id="hltbImportInput" type="file" accept="application/json,.json,text/csv,.csv" hidden />
-      </section>
-
-      <section class="settings-section two-columns">
-        <label class="control-group"><span>КАРТОК НА СТОРІНКУ</span><select id="pageSizeSetting"><option>12</option><option selected>24</option><option>36</option><option>48</option></select></label>
-        <label class="control-group"><span>КЕШ, ДНІВ</span><select id="cacheDaysSetting"><option>1</option><option selected>7</option><option>14</option><option>30</option></select></label>
-      </section>
-
-      <section class="settings-section">
-        <label class="check-row"><input id="reduceMotionSetting" type="checkbox" /><span class="fake-check"></span><span>Зменшити анімації</span></label>
-        <label class="control-group"><span>СИЛА НАХИЛУ КАРТОК</span><input id="tiltSetting" type="range" min="0" max="2" value="1" step="0.1" /></label>
-      </section>
-
-      <section class="settings-section danger-zone">
-        <h3>Сховище</h3>
-        <div class="inline-actions wrap">
-          <button class="pixel-button secondary" id="clearCacheButton" type="button">ОЧИСТИТИ КЕШ</button>
-          <button class="pixel-button danger" id="resetAppButton" type="button">СКИНУТИ ВСІ ДАНІ</button>
-        </div>
-      </section>
-
-      <div class="dialog-footer"><button class="pixel-button" id="saveSettingsButton" type="submit">ЗБЕРЕГТИ</button></div>
+    <form class="dialog-shell" id="settingsForm">
+      <div class="dialog-header"><div><p class="eyebrow">ПАРАМЕТРИ</p><h2>Save Slot</h2></div><button class="icon-button close-dialog" type="button">×</button></div>
+      <section class="settings-section"><h3>Онлайн-джерела</h3><p class="helper">Wikidata використовується для пошуку, платформ, жанрів, дат та ідентифікаторів. Steam-відгуки завантажуються без ключа; якщо браузер блокує Steam через CORS, застосовується публічний read-only проксі.</p><label class="check-row"><input id="steamRatingsSetting" type="checkbox" checked /><span class="fake-check"></span><span>Автоматично отримувати Steam-рейтинг</span></label></section>
+      <section class="settings-section"><label class="check-row"><input id="reduceMotionSetting" type="checkbox" /><span class="fake-check"></span><span>Зменшити анімації</span></label><label class="control-group"><span>СИЛА НАХИЛУ КАРТОК</span><input id="tiltSetting" type="range" min="0" max="2" value="1" step="0.1" /></label></section>
+      <section class="settings-section danger-zone"><h3>Локальні дані менеджера</h3><p class="helper">Пошуковий каталог не зберігається локально. Тут зберігаються лише списки, нотатки, статуси та короткі знімки доданих ігор.</p><button class="pixel-button danger" id="resetAppButton" type="button">СКИНУТИ МОЇ ДАНІ</button></section>
+      <div class="dialog-footer"><button class="pixel-button" type="submit">ЗБЕРЕГТИ</button></div>
     </form>
   </dialog>
 
-  <dialog class="app-dialog compact-dialog" id="importDialog">
-    <div class="dialog-shell">
-      <div class="dialog-header"><div><p class="eyebrow">ІМПОРТ</p><h2>Як додати дані?</h2></div><button class="icon-button close-dialog" type="button" aria-label="Закрити">×</button></div>
-      <p id="importSummary" class="helper"></p>
-      <div class="stack-actions">
-        <button class="pixel-button" id="importReplaceButton" type="button">ЗАМІНИТИ ПОТОЧНІ</button>
-        <button class="pixel-button secondary" id="importMergeButton" type="button">ОБ’ЄДНАТИ</button>
-        <button class="pixel-button secondary" id="importCancelButton" type="button">СКАСУВАТИ</button>
-      </div>
-    </div>
-  </dialog>
+  <dialog class="app-dialog compact-dialog" id="importDialog"><div class="dialog-shell"><div class="dialog-header"><div><p class="eyebrow">ІМПОРТ</p><h2>Як застосувати?</h2></div><button class="icon-button close-dialog" type="button">×</button></div><p class="helper" id="importSummary"></p><div class="stack-actions"><button class="pixel-button" id="importReplaceButton" type="button">ЗАМІНИТИ</button><button class="pixel-button secondary" id="importMergeButton" type="button">ОБ’ЄДНАТИ</button><button class="pixel-button secondary" id="importCancelButton" type="button">СКАСУВАТИ</button></div></div></dialog>
 
   <template id="gameCardTemplate">
-    <article class="game-card tilt-card" tabindex="0">
-      <div class="cartridge">
-        <div class="cover-wrap">
-          <img class="game-cover" alt="" loading="lazy" />
-          <div class="cover-fallback" aria-hidden="true"></div>
-          <span class="platform-chip"></span>
-          <button class="save-button" type="button" aria-label="Додати до списку">＋</button>
-        </div>
-        <div class="cartridge-notch" aria-hidden="true"></div>
-      </div>
-      <div class="game-info">
-        <h3 class="game-title"></h3>
-        <div class="game-meta"><span class="rating"></span><span class="votes"></span><span class="length"></span><span class="year"></span></div>
-        <div class="game-tags"></div>
-      </div>
-    </article>
+    <article class="game-card tilt-card" tabindex="0"><div class="cartridge"><div class="cover-wrap"><img class="game-cover" alt="" loading="lazy" /><div class="cover-fallback"></div><span class="platform-chip"></span><button class="save-button" type="button">＋</button></div><div class="cartridge-notch"></div></div><div class="game-info"><h3 class="game-title"></h3><div class="game-meta"><span class="rating"></span><span class="reviews"></span><span class="year"></span></div><div class="game-tags"></div><div class="rating-state"></div></div></article>
   </template>
-
-  <div class="toast-region" id="toastRegion" aria-live="polite" aria-atomic="true"></div>
-
-  <script type="module" src="app.js"></script>
+  <div class="toast-region" id="toastRegion" aria-live="polite"></div>
+  <script defer src="app-v3-core.js"></script>
+  <script defer src="app-v3-wikidata.js"></script>
+  <script defer src="app-v3-steam.js"></script>
+  <script defer src="app-v3-results.js"></script>
+  <script defer src="app-v3-manager.js"></script>
+  <script defer src="app-v3-init.js"></script>
 </body>
 </html>
