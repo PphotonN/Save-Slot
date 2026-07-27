@@ -1,0 +1,51 @@
+name: Пропозиція для Save Slot v1
+description: Запропонувати функцію відповідно до нової мети застосунку
+title: "[FEATURE] "
+labels:
+  - enhancement
+body:
+  - type: textarea
+    id: goal
+    attributes:
+      label: Потреба користувача
+      description: Яку конкретну проблему пошуку або менеджменту колекції це вирішує?
+    validations:
+      required: true
+  - type: textarea
+    id: flow
+    attributes:
+      label: Очікуваний сценарій
+      description: Опишіть короткий desktop і mobile сценарій.
+    validations:
+      required: true
+  - type: dropdown
+    id: area
+    attributes:
+      label: Напрям
+      options:
+        - Каталог і пошук
+        - Релізи та платформи
+        - Медіа і рейтинги
+        - Особиста колекція
+        - Переклад і локалізація
+        - PS1-візуал
+        - PWA або мобільний застосунок
+        - API і джерела даних
+    validations:
+      required: true
+  - type: textarea
+    id: data
+    attributes:
+      label: Необхідні дані або джерела
+      description: Чи потрібні новий provider, API-ключ, ліцензія, кеш або міграція?
+  - type: checkboxes
+    id: constraints
+    attributes:
+      label: Обмеження
+      options:
+        - label: Функція не повинна змішувати гру з конкретним платформним релізом.
+          required: true
+        - label: Функція має бути придатною для смартфона.
+          required: true
+        - label: Секрети зовнішніх API не потраплятимуть у frontend.
+          required: true
