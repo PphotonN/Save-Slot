@@ -10,6 +10,7 @@
     type SourceRef,
   } from '@save-slot/domain';
   import { formatLabel, translate, type SupportedLocale } from '@save-slot/i18n';
+  import ThreeSlotScene from './ThreeSlotScene.svelte';
 
   interface Props {
     selected: SearchResult | null;
@@ -22,6 +23,13 @@
 
   type DetailTab = 'overview' | 'media' | 'ratings' | 'sources';
 
+  const sceneTextureOptions = {
+    pixelated: true,
+    dither: true,
+    crt: false,
+    textureResolution: 256,
+  } as const;
+
   let { selected, entry, locale, onToggleCollection, onRatingChange, onReleaseChange }: Props = $props();
   let useLocalizedDescription = $state(true);
   let activeTab = $state<DetailTab>('overview');
@@ -30,7 +38,6 @@
   const copy = {
     uk: {
       slot: 'Слот вибраної гри',
-      collectionSystem: 'Система колекції',
       releases: 'Доступні платформні релізи',
       sections: 'Розділи інформації про гру',
       media: 'Медіа',
@@ -62,7 +69,6 @@
     },
     en: {
       slot: 'Selected game slot',
-      collectionSystem: 'Collection system',
       releases: 'Available platform releases',
       sections: 'Game information sections',
       media: 'Media',
@@ -198,23 +204,13 @@
 
 <section class:has-game={Boolean(selected)} class="slot-panel" aria-label={text.slot}>
   <div class="slot-stage">
-    <div class="slot-chassis">
-      <div class="slot-mouth"></div>
-      {#key release?.id ?? 'save-slot-home'}
-        <div class:inserted={Boolean(release)} class="slot-cartridge">
-          {#if release && cover}
-            <img class="slot-cover" src={cover.url} alt={`${translate(locale, 'customCover')}: ${selected?.game.title ?? ''}`} />
-            <span class="cartridge-platform">{release.platform.name}</span>
-          {:else}
-            <div class="save-slot-label">
-              <span class="slot-symbol">▣</span>
-              <strong>SAVE<br />SLOT</strong>
-              <small>{text.collectionSystem.toLocaleUpperCase(locale)}</small>
-            </div>
-          {/if}
-        </div>
-      {/key}
-    </div>
+    <ThreeSlotScene
+      coverUrl={cover?.url ?? null}
+      label={text.slot}
+      platform={release?.platform.name ?? null}
+      releaseId={release?.id ?? null}
+      textureOptions={sceneTextureOptions}
+    />
   </div>
 
   {#if selected && release}
@@ -343,8 +339,8 @@
 </section>
 
 {#if selectedMedia}
-  <div class="lightbox" onclick={closeLightbox} role="dialog" aria-modal="true" aria-label={mediaKind(selectedMedia)}>
-    <figure onclick={(event) => event.stopPropagation()}>
+  <div class="lightbox" onclick={closeLightbox} role="presentation">
+    <figure aria-label={mediaKind(selectedMedia)} onclick={(event) => event.stopPropagation()} role="dialog">
       <button onclick={closeLightbox} type="button" aria-label={text.close}>×</button>
       <img src={selectedMedia.url} alt={`${mediaKind(selectedMedia)}: ${selected?.game.title ?? ''}`} />
       <figcaption>{selected?.game.title} · {mediaKind(selectedMedia)} · {sourceName(selectedMedia.source.provider)}</figcaption>
@@ -354,18 +350,7 @@
 
 <style>
   .slot-panel { min-height: 100%; display: flex; flex-direction: column; gap: 1.05rem; padding: 1rem; background: linear-gradient(90deg, rgba(255,255,255,.018) 1px, transparent 1px) 0 0 / 7px 7px, #0b0f11; border-right: 1px solid var(--line); }
-  .slot-stage { display: grid; place-items: center; min-height: 265px; perspective: 820px; }
-  .slot-chassis { position: relative; width: min(280px, 90%); aspect-ratio: 1/.92; padding: 24px 28px 34px; transform: rotateX(4deg) rotateY(-4deg); background: linear-gradient(145deg, rgba(255,255,255,.11), transparent 24%), linear-gradient(145deg,#30393c,#101719 68%); border: 2px solid #4b575a; clip-path: polygon(7% 0,93% 0,100% 8%,100% 93%,93% 100%,7% 100%,0 93%,0 8%); box-shadow: inset 0 0 0 4px #0a0d0e,15px 20px 0 rgba(0,0,0,.24),0 34px 75px rgba(0,0,0,.42); }
-  .slot-mouth { position: absolute; left: 12%; right: 12%; bottom: 17px; height: 15px; background: #020303; border: 2px solid #465053; box-shadow: inset 0 5px 7px #000; }
-  .slot-cartridge { position: relative; width: 100%; height: 100%; overflow: hidden; transform: translate3d(0,5px,0) scale(1); transform-origin: 50% 100%; background: linear-gradient(145deg,#3e484b,#171d1f); border: 2px solid #647074; clip-path: polygon(8% 0,92% 0,100% 8%,100% 100%,0 100%,0 8%); box-shadow: inset 0 0 0 5px #111719; }
-  .slot-cartridge.inserted { animation: rigid-insert 680ms cubic-bezier(.18,.82,.2,1) both; }
-  .slot-cover { display: block; width: 100%; height: 100%; object-fit: cover; filter: saturate(.94) contrast(1.04); }
-  .slot-cartridge::after { position: absolute; inset: 0; pointer-events: none; content: ''; background: repeating-linear-gradient(0deg,rgba(255,255,255,.018) 0 1px,transparent 1px 3px),linear-gradient(135deg,rgba(255,255,255,.12),transparent 28%); mix-blend-mode: overlay; }
-  .cartridge-platform { position: absolute; z-index: 2; right: 10px; bottom: 10px; left: 10px; padding: .45rem; overflow: hidden; color: var(--accent-cool); font: .5rem/1.25 var(--pixel-font); text-overflow: ellipsis; white-space: nowrap; background: rgba(4,8,9,.9); border: 1px solid rgba(109,214,177,.5); }
-  .save-slot-label { position: absolute; inset: 15px; display: grid; place-content: center; text-align: center; color: #161303; background: linear-gradient(135deg,rgba(255,255,255,.32),transparent 25%),#d8b63c; border: 2px solid #74601c; }
-  .save-slot-label strong { font: 1.4rem/1.45 var(--pixel-font); }
-  .save-slot-label small,.slot-symbol { font: .45rem/1.4 var(--pixel-font); }
-  .slot-symbol { margin-bottom: .8rem; font-size: 1.6rem; }
+  .slot-stage { display: grid; min-height: 265px; }
 
   .game-details { display: grid; gap: .75rem; min-height: 0; }
   .game-header p,.section-heading,dt,.rating-input span,.credits-block span { color: var(--accent-cool); font: .42rem/1.4 var(--pixel-font); }
@@ -425,16 +410,9 @@
   .lightbox button { position: absolute; z-index: 2; top: .5rem; right: .5rem; width: 42px; height: 42px; color: #fff; font-size: 1.5rem; background: rgba(0,0,0,.7); border: 1px solid #777; }
   .lightbox figcaption { padding: .55rem; color: var(--muted-light); text-align: center; background: #080b0d; }
 
-  @keyframes rigid-insert { 0% { opacity: 0; transform: translate3d(0,-85px,40px) rotateX(-5deg) scale(.96); } 65% { opacity: 1; transform: translate3d(0,9px,0) rotateX(0) scale(1); } 82% { transform: translate3d(0,2px,0) scale(1); } 100% { transform: translate3d(0,5px,0) scale(1); } }
   @media (max-width: 760px) {
     .slot-panel { display: grid; grid-template-columns: 135px minmax(0,1fr); min-height: 150px; max-height: none; padding: .65rem; border-right: 0; border-bottom: 1px solid var(--line); }
     .slot-stage { min-height: 135px; }
-    .slot-chassis { width: 125px; padding: 11px 13px 17px; }
-    .slot-mouth { bottom: 7px; height: 8px; }
-    .save-slot-label { inset: 7px; }
-    .save-slot-label strong { font-size: .65rem; }
-    .slot-symbol { margin-bottom: .25rem; font-size: .8rem; }
-    .save-slot-label small { display: none; }
     .game-details { max-height: 310px; overflow-y: auto; padding-right: .15rem; }
     .game-header h1 { font-size: 1rem; }
     .game-facts { grid-template-columns: repeat(3,minmax(0,1fr)); }
@@ -450,5 +428,4 @@
     .detail-tabs { grid-template-columns: repeat(2,minmax(0,1fr)); }
     .screenshot-grid { grid-template-columns: repeat(2,minmax(0,1fr)); }
   }
-  @media (prefers-reduced-motion: reduce) { .slot-cartridge.inserted { animation: none; } }
 </style>
