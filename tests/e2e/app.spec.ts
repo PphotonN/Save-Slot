@@ -94,13 +94,28 @@ test('sorting changes order without changing the visible card set', async ({ pag
   expect(sortedTitles).toEqual(expected);
 });
 
-test('inserts a selected release into Three.js or the CSS fallback slot', async ({ page }) => {
+test('inserts a selected release and persists its artwork mode', async ({ page }) => {
   await page.locator('.game-card .card-select').first().click();
   await expect(page.locator('.game-header h1')).toBeVisible();
   await expect(page.locator('.fallback-cartridge')).toHaveClass(/inserted/);
   await expect(page.locator('.scene-shell')).toHaveAttribute('data-renderer', /ready|fallback/, {
     timeout: 20_000,
   });
+
+  await page.locator('.mode-controls').getByRole('button', { name: 'CRT', exact: true }).click();
+  await expect(page.locator('.scene-shell')).toHaveAttribute('data-artwork-mode', 'crt');
+  await expect(page.locator('.mode-controls').getByRole('button', { name: 'CRT' })).toHaveAttribute(
+    'aria-pressed',
+    'true',
+  );
+
+  await page.reload();
+  await expect(page.locator('.game-card').first()).toBeVisible({ timeout: 20_000 });
+  await expect(page.locator('.scene-shell')).toHaveAttribute('data-artwork-mode', 'crt');
+  await expect(page.locator('.mode-controls').getByRole('button', { name: 'CRT' })).toHaveAttribute(
+    'aria-pressed',
+    'true',
+  );
 });
 
 test('creates a custom list and restores it from IndexedDB after reload', async ({ page }) => {
