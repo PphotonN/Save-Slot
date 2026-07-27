@@ -18,10 +18,10 @@ This roadmap describes implementation order rather than fixed release dates. A c
 
 - [x] pnpm workspace with SvelteKit web and Cloudflare Worker API applications.
 - [x] Shared domain, provider, storage, UI, localization and PS1-scene packages.
-- [x] Strict TypeScript, Vitest and Prettier configuration.
+- [x] Strict TypeScript, Vitest and Svelte 5-compatible Prettier configuration.
 - [x] Portable Windows launcher and local project-library service.
 - [x] GitHub Actions updated to Node.js 24 and pnpm.
-- [x] Separate quality/build and Playwright acceptance jobs.
+- [x] One consolidated workflow with separate quality/build and Playwright acceptance jobs.
 - [ ] Confirm a clean workflow run in the repository Actions UI.
 - [ ] Add ESLint only where it provides checks not already covered by TypeScript, Svelte and Prettier.
 
@@ -32,10 +32,12 @@ This roadmap describes implementation order rather than fixed release dates. A c
 - [x] Separate `Game`, `Release` and `CollectionEntry` entities.
 - [x] Runtime schemas, canonical/source IDs and platform normalization.
 - [x] IndexedDB CRUD and versioned JSON export/import.
-- [x] Automatic mirror to `.save-slot-data/library.json` with backup.
+- [x] Automatic desktop mirror to `.save-slot-data/library.json` with backup.
+- [x] Native Capacitor storage isolation from the desktop localhost mirror.
 - [x] Atomic entry/list membership and legacy membership normalization.
 - [x] Physical-copy condition, completeness, purchase and custom-cover fields.
 - [x] Backward-compatible defaults for older version-1 collection files.
+- [x] Import limits, HTTP/HTTPS URL validation, duplicate-ID checks and reference-integrity checks.
 - [ ] Add explicit IndexedDB migration fixtures when database version 2 is introduced.
 
 ## Phase 3 — Aggregation Worker
@@ -106,7 +108,7 @@ This roadmap describes implementation order rather than fixed release dates. A c
 - [x] Persistent `CLEAN`, `PS1` and `CRT` artwork modes.
 - [x] Immediate CSS fallback during loading and when WebGL 2 is unavailable.
 - [x] Reduced-motion handling.
-- [x] GPU resource disposal and stale-transition protection.
+- [x] GPU resource disposal, context-loss fallback and stale-transition protection.
 - [x] Unit tests for rigid transforms and UV cropping.
 - [x] Playwright acceptance that permits either Three.js or fallback in CI.
 - [ ] Validate GPU usage, context recovery and interaction on target mid-range Android hardware.
@@ -122,6 +124,7 @@ This roadmap describes implementation order rather than fixed release dates. A c
 - [x] Typed domain labels for statuses, ownership, formats, copy condition and list presets.
 - [x] Parameterized status messages.
 - [x] Original/localized description toggle where both texts exist.
+- [x] Localized collection-import guard for invalid type and excessive file size.
 - [ ] Move the remaining specialized component copy into the central catalogue.
 - [ ] Implement an external translation adapter and local translation cache.
 - [ ] Add privacy disclosure before sending text to an external translator.
@@ -129,16 +132,19 @@ This roadmap describes implementation order rather than fixed release dates. A c
 
 ## Phase 9 — PWA and smartphone readiness
 
-**Status:** installable shell and automated viewport acceptance implemented
+**Status:** production PWA acceptance and Capacitor wrapper scaffold implemented
 
 - [x] PWA manifest, service worker and offline application shell.
+- [x] Deployment-base-aware manifest, icons and service-worker fallback.
 - [x] Safe-area-aware mobile navigation.
 - [x] Playwright projects for desktop Chromium and Pixel 7 viewport.
 - [x] Acceptance tests for startup, language persistence, sorting, lists, slot fallback and responsive navigation.
+- [x] Production-preview test for offline shell and IndexedDB collection recovery.
+- [x] Capacitor Android wrapper package and automated prepare/open/run commands.
+- [x] Application-owned service-worker handling and native IndexedDB-only storage.
 - [ ] Confirm Playwright execution in GitHub Actions.
-- [ ] Add an installed-PWA offline collection test.
 - [ ] Add low-memory image-pressure testing.
-- [ ] Create the Capacitor Android wrapper.
+- [ ] Generate and review the native `apps/mobile/android` project.
 - [ ] Add Android build/signing pipeline.
 - [ ] Evaluate iOS build requirements.
 - [ ] Define optional private synchronization for smartphones.
@@ -147,7 +153,8 @@ This roadmap describes implementation order rather than fixed release dates. A c
 
 - [ ] Confirm no data-loss issue through longer collection usage.
 - [ ] Review all provider terms, media caching and attribution.
-- [ ] Run malicious-import and storage-limit tests.
+- [x] Add malicious-import and storage-limit schema tests.
+- [x] Add browser acceptance for invalid-type and oversized backup files.
 - [ ] Validate major platform families and representative edge cases.
 - [ ] Add privacy policy and source-attribution page.
 - [ ] Complete desktop and physical-smartphone usability passes.
@@ -157,10 +164,10 @@ This roadmap describes implementation order rather than fixed release dates. A c
 ## Next implementation milestone
 
 1. Confirm and repair the first complete GitHub Actions run.
-2. Finish central localization of remaining component-specific text.
-3. Add installed-PWA/offline and import-security acceptance tests.
-4. Profile the Three.js slot on physical Android hardware.
-5. Prepare the Capacitor Android wrapper.
+2. Generate the Capacitor Android project on a workstation with Android Studio.
+3. Run the PWA and native wrapper on a physical Android phone.
+4. Profile Three.js memory, GPU use and context recovery.
+5. Finish central localization of remaining component-specific text.
 6. Design the optional translation service and privacy boundary.
 
 ## Deferred ideas
