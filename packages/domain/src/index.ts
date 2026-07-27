@@ -161,6 +161,29 @@ export type CollectionStatus = z.infer<typeof collectionStatusSchema>;
 export const ownershipSchema = z.enum(['physical', 'digital', 'subscription', 'borrowed', 'none']);
 export type Ownership = z.infer<typeof ownershipSchema>;
 
+export const copyConditionSchema = z.enum([
+  'mint',
+  'excellent',
+  'good',
+  'fair',
+  'poor',
+  'damaged',
+  'unknown',
+]);
+export type CopyCondition = z.infer<typeof copyConditionSchema>;
+
+export const copyCompletenessSchema = z.enum([
+  'sealed',
+  'complete',
+  'missing-manual',
+  'missing-inserts',
+  'box-only',
+  'media-only',
+  'loose',
+  'unknown',
+]);
+export type CopyCompleteness = z.infer<typeof copyCompletenessSchema>;
+
 export const collectionEntrySchema = z.object({
   id: z.string().min(1),
   releaseId: z.string().min(1),
@@ -168,6 +191,9 @@ export const collectionEntrySchema = z.object({
   status: collectionStatusSchema.default('backlog'),
   ownership: ownershipSchema.default('none'),
   format: releaseFormatSchema.default('unknown'),
+  boxCondition: copyConditionSchema.default('unknown'),
+  mediaCondition: copyConditionSchema.default('unknown'),
+  completeness: copyCompletenessSchema.default('unknown'),
   priority: z.number().int().min(1).max(5).default(3),
   personalRating: z.number().min(0).max(100).nullable().default(null),
   notes: z.string().default(''),
@@ -176,7 +202,7 @@ export const collectionEntrySchema = z.object({
   acquiredAt: z.iso.date().optional(),
   purchasePrice: z.number().nonnegative().optional(),
   currency: z.string().length(3).optional(),
-  customCoverUrl: z.url().optional(),
+  customCoverUrl: z.url().nullable().default(null),
   createdAt: z.iso.datetime(),
   updatedAt: z.iso.datetime(),
 });
@@ -185,12 +211,16 @@ export type CollectionEntry = z.infer<typeof collectionEntrySchema>;
 export const collectionViewSchema = z.enum(['list', 'rows', 'cartridges']);
 export type CollectionView = z.infer<typeof collectionViewSchema>;
 
+export const collectionGroupingSchema = z.enum(['none', 'platform']);
+export type CollectionGrouping = z.infer<typeof collectionGroupingSchema>;
+
 export const userListSchema = z.object({
   id: z.string().min(1),
   name: z.string().min(1),
   preset: z.enum(['collection', 'wishlist', 'backlog', 'custom']).default('custom'),
   entryIds: z.array(z.string().min(1)).default([]),
   preferredView: collectionViewSchema.default('rows'),
+  groupBy: collectionGroupingSchema.default('none'),
   sort: z.enum(['manual', 'title', 'year', 'platform', 'rating', 'recent']).default('manual'),
   createdAt: z.iso.datetime(),
   updatedAt: z.iso.datetime(),
