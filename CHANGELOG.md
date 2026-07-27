@@ -14,7 +14,14 @@
 - game-detail tabs for overview, screenshots, ratings and source attribution;
 - fullscreen screenshot viewer;
 - sourced rating panels with vote counts;
-- platform-release switcher for games returned with several releases.
+- platform-release switcher for games returned with several releases;
+- layered online catalogue cache using memory, Cache API and an optional KV-compatible binding;
+- six-hour normalized search cache independent from sorting;
+- 30-day game and release detail cache;
+- stable cached `/v1/games/:id` and `/v1/releases/:id` routes for previously discovered online entities;
+- `/v1/cache` diagnostics endpoint and settings panel;
+- cached detail refresh when opening a game from the personal collection;
+- unit and integration tests for cache memory, KV-compatible persistence and detail routes.
 
 ### Changed
 
@@ -23,7 +30,9 @@
 - project-file writes are debounced so a multi-step collection update is saved as one consistent payload;
 - `@save-slot/storage` now exports the project-file mirrored browser repository by default;
 - Wrangler is pinned to an exact version to prevent unexpected local runtime requirement changes;
-- the launcher waits for the library cache, API and web application before opening the browser.
+- the launcher waits for the library cache, API and web application before opening the browser;
+- discovery remains random while each discovered game and release is retained in the detail cache;
+- collection snapshots can be refreshed from cached normalized online metadata without blocking local display.
 
 ### Fixed
 
@@ -31,7 +40,8 @@
 - local pnpm validation before portable Node.js was added to `PATH`;
 - Wrangler failure under Node.js 20;
 - right-to-left cartridge row construction;
-- project library cache implementation not being used by the package root export.
+- project library cache implementation not being used by the package root export;
+- online detail routes being limited to the small fixture catalogue.
 
 ### Verification note
 
