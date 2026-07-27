@@ -1,5 +1,6 @@
 import { searchResultSchema, type SearchResult } from '@save-slot/domain';
 import { fixtureSearchResults } from '@save-slot/domain/fixtures';
+import { hasVerifiedBoxArt } from '@save-slot/domain/media';
 import {
   FixtureProvider,
   sortSearchResults,
@@ -16,6 +17,19 @@ const searchResponseSchema = z.object({
 
 function browserLocale(): string {
   return typeof navigator === 'undefined' ? 'uk' : navigator.language || 'uk';
+}
+
+function verifiedReleaseResults(items: SearchResult[]): SearchResult[] {
+  return items
+    .map((result) => {
+      const releases = result.releases.filter(hasVerifiedBoxArt);
+      return {
+        ...result,
+        game: { ...result.game, releaseIds: releases.map((release) => release.id) },
+        releases,
+      };
+    })
+    .filter((result) => result.releases.length > 0);
 }
 
 export class CatalogClient {
@@ -36,14 +50,14 @@ export class CatalogClient {
         if (request.platformId) url.searchParams.set('platform', request.platformId);
         const response = await fetch(url, { signal });
         if (!response.ok) throw new Error(`Search API returned HTTP ${response.status}`);
-        return searchResponseSchema.parse(await response.json()).items;
+        return verifiedReleaseResults(searchResponseSchema.parse(await response.json()).items);
       } catch (error) {
         if (signal?.aborted) throw error;
       }
     }
 
     const page = await fixtureProvider.search(request, signal);
-    return sortSearchResults(page.items, sort);
+    return verifiedReleaseResults(sortSearchResults(page.items, sort));
   }
 
   async discovery(limit = 30, signal?: AbortSignal): Promise<SearchResult[]> {
@@ -54,7 +68,7 @@ export class CatalogClient {
         url.searchParams.set('locale', browserLocale());
         const response = await fetch(url, { signal });
         if (!response.ok) throw new Error(`Discovery API returned HTTP ${response.status}`);
-        return searchResponseSchema.parse(await response.json()).items;
+        return verifiedReleaseResults(searchResponseSchema.parse(await response.json()).items);
       } catch (error) {
         if (signal?.aborted) throw error;
       }
@@ -65,6 +79,6 @@ export class CatalogClient {
       const target = Math.floor(Math.random() * (index + 1));
       [items[index], items[target]] = [items[target] as SearchResult, items[index] as SearchResult];
     }
-    return items.slice(0, limit);
+    return verifiedReleaseResults(items.slice(0, limit));
   }
 }
