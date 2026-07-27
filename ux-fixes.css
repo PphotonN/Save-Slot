@@ -1,0 +1,75 @@
+.search-feedback {
+  min-height: 1.5rem;
+  margin-top: .85rem;
+  color: var(--muted);
+  font-size: .82rem;
+  line-height: 1.45;
+}
+
+.search-feedback[data-mode="loading"] { color: var(--accent); }
+.search-feedback[data-mode="success"],
+.search-feedback[data-mode="ready"] { color: var(--accent-2); }
+.search-feedback[data-mode="error"] { color: var(--danger); }
+.search-feedback[data-mode="demo"] { color: #c8a95a; }
+
+.results-area.is-searching .game-grid {
+  opacity: .28;
+  pointer-events: none;
+  filter: saturate(.55);
+  transition: opacity .18s ease, filter .18s ease;
+}
+
+.results-area.is-searching .loading-panel {
+  position: sticky;
+  top: 92px;
+  z-index: 8;
+  box-shadow: 0 12px 30px rgba(0,0,0,.38);
+}
+
+.rawg-artwork .cover-wrap {
+  background: #090b0b;
+}
+
+.rawg-artwork .cover-wrap::before {
+  content: "";
+  position: absolute;
+  inset: -8%;
+  z-index: 0;
+  background-image: var(--rawg-art);
+  background-size: cover;
+  background-position: center;
+  filter: blur(14px) brightness(.35) saturate(.7);
+  transform: scale(1.08);
+}
+
+.rawg-artwork .game-cover {
+  position: relative;
+  z-index: 1;
+  object-fit: contain;
+  padding: .35rem;
+  background: rgba(5,7,7,.34);
+}
+
+.rawg-artwork .platform-chip,
+.rawg-artwork .save-button,
+.rawg-artwork .artwork-source {
+  z-index: 3;
+}
+
+.artwork-source {
+  position: absolute;
+  top: .5rem;
+  right: .5rem;
+  padding: .28rem .38rem;
+  border: 1px solid rgba(255,255,255,.18);
+  background: rgba(5,7,7,.82);
+  color: #aeb8b3;
+  font-family: "Press Start 2P", monospace;
+  font-size: .38rem;
+  letter-spacing: .03em;
+}
+
+@media (max-width: 560px) {
+  .search-feedback { font-size: .74rem; }
+  .artwork-source { font-size: .32rem; }
+}
