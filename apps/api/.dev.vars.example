@@ -1,7 +1,9 @@
 # Copy to apps/api/.dev.vars for local Worker development.
 # Never commit the real .dev.vars file.
+# The current Worker exposes only public GET catalogue data, so wildcard CORS
+# is intentional and supports browsers plus Capacitor https://localhost.
 
-ALLOWED_ORIGIN=http://localhost:5173
+ALLOWED_ORIGIN=*
 IGDB_CLIENT_ID=
 IGDB_CLIENT_SECRET=
 MOBYGAMES_API_KEY=
