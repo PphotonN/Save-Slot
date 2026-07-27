@@ -78,7 +78,8 @@ Exit criteria:
 - [x] Normalize provider platform labels at the API boundary.
 - [x] Add request timeouts, abort propagation and partial provider results.
 - [x] Add layered Worker memory, Cache API and optional KV-compatible cache.
-- [x] Cache normalized search pages independently from sorting.
+- [x] Cache normalized search pools independently from sorting and cursor.
+- [x] Cache search suggestions separately from full normalized results.
 - [x] Persist discovered game and release details under stable cache keys.
 - [x] Make `/v1/games/:id` and `/v1/releases/:id` work for cached online entities.
 - [x] Add `/v1/cache` diagnostics without exposing credentials or personal data.
@@ -99,13 +100,16 @@ Exit criteria:
 
 ## Phase 4 — Search and discovery
 
-**Status:** live online vertical slice implemented
+**Status:** suggestions and bounded paging implemented
 
 - [x] Build right-side search workspace.
-- [ ] Add search suggestions.
+- [x] Add debounced search suggestions with stale-request cancellation.
 - [x] Add submitted search.
 - [x] Add compact filter drawer.
-- [ ] Add paging or cursor-based loading in the web interface.
+- [x] Add cursor-based loading inside a stable normalized search pool.
+- [x] Append subsequent pages without clearing accepted cards.
+- [x] Preserve provider cursor and total contracts.
+- [x] Restart paging safely when platform or sorting changes.
 - [x] Add random discovery selection per session/startup.
 - [x] Generate discovery from randomized live search seeds with fixture fallback.
 - [x] Keep filtering, sorting and rendering independent.
@@ -117,6 +121,8 @@ Exit criteria:
 
 - [x] search works without requiring a sort interaction;
 - [x] changing sorting never controls whether games appear;
+- [x] later pages append without replacing the existing result collection;
+- [x] offline fixture paging returns distinct pages and an accurate total;
 - [x] discovery selection changes between application starts;
 - [x] mobile search and filters are designed for one-handed use.
 
