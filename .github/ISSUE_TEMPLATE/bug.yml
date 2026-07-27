@@ -1,0 +1,49 @@
+name: Помилка Save Slot v1
+description: Повідомити про відтворювану проблему нового застосунку
+title: "[BUG] "
+labels:
+  - bug
+body:
+  - type: textarea
+    id: problem
+    attributes:
+      label: Проблема
+      description: Що сталося і що мало статися?
+    validations:
+      required: true
+  - type: textarea
+    id: steps
+    attributes:
+      label: Кроки відтворення
+      placeholder: |
+        1. Відкрити…
+        2. Обрати…
+        3. Побачити…
+    validations:
+      required: true
+  - type: dropdown
+    id: area
+    attributes:
+      label: Частина застосунку
+      options:
+        - Пошук і фільтри
+        - Дані гри або релізу
+        - Обкладинки або скриншоти
+        - Колекція та IndexedDB
+        - Імпорт або експорт
+        - PS1-слот і картридж
+        - Мобільний інтерфейс
+        - API та зовнішні джерела
+    validations:
+      required: true
+  - type: input
+    id: environment
+    attributes:
+      label: Пристрій і браузер
+      placeholder: Android 15 / Chrome 150 або Windows 11 / Edge 150
+    validations:
+      required: true
+  - type: textarea
+    id: evidence
+    attributes:
+      label: Логи, скріншоти або відео
