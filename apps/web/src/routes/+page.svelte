@@ -43,11 +43,13 @@
   let locale = $state<SupportedLocale>('uk');
   let importInput: HTMLInputElement;
 
-  const platformOptions = [...new Map(
-    fixtureSearchResults
-      .flatMap((result) => result.releases)
-      .map((release) => [release.platform.id, release.platform]),
-  ).values()].sort((left, right) => left.name.localeCompare(right.name, 'uk'));
+  let platformOptions = $derived.by(() =>
+    [...new Map(
+      [...fixtureSearchResults, ...results]
+        .flatMap((result) => result.releases)
+        .map((release) => [release.platform.id, release.platform]),
+    ).values()].sort((left, right) => left.name.localeCompare(right.name, locale)),
+  );
 
   let filteredResults = $derived.by(() => {
     const filtered =
@@ -131,6 +133,7 @@
       const items = await client.search(
         {
           query: query.trim(),
+          locale,
           limit: 60,
           ...(platformId === 'all' ? {} : { platformId }),
         },
@@ -204,7 +207,7 @@
   async function removeEntry(entry: CollectionEntry): Promise<void> {
     await repository.deleteEntry(entry.id);
     entries = entries.filter((item) => item.id !== entry.id);
-    lists = (await repository.listLists());
+    lists = await repository.listLists();
     statusText = 'Запис видалено з колекції.';
   }
 
@@ -212,13 +215,15 @@
     entry: CollectionEntry,
     patch: Partial<CollectionEntry>,
   ): Promise<void> {
+    const personalRating = Object.prototype.hasOwnProperty.call(patch, 'personalRating')
+      ? patch.personalRating == null
+        ? null
+        : Math.min(100, Math.max(0, patch.personalRating))
+      : entry.personalRating;
     const updated: CollectionEntry = {
       ...entry,
       ...patch,
-      personalRating:
-        patch.personalRating == null
-          ? (patch.personalRating ?? entry.personalRating)
-          : Math.min(100, Math.max(0, patch.personalRating)),
+      personalRating,
       updatedAt: new Date().toISOString(),
     };
     await repository.putEntry(updated);
