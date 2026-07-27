@@ -43,6 +43,16 @@
   let locale = $state<SupportedLocale>('uk');
   let importInput: HTMLInputElement;
 
+  let releaseResults = $derived.by(() =>
+    results.flatMap((result) =>
+      result.releases.map((release) => ({
+        ...result,
+        game: { ...result.game, releaseIds: [release.id] },
+        releases: [release],
+      })),
+    ),
+  );
+
   let platformOptions = $derived.by(() =>
     [...new Map(
       [...fixtureSearchResults, ...results]
@@ -54,10 +64,8 @@
   let filteredResults = $derived.by(() => {
     const filtered =
       platformId === 'all'
-        ? results
-        : results.filter((result) =>
-            result.releases.some((release) => release.platform.id === platformId),
-          );
+        ? releaseResults
+        : releaseResults.filter((result) => result.releases[0]?.platform.id === platformId);
     return sortSearchResults(filtered, sort);
   });
 
@@ -112,7 +120,7 @@
     try {
       const items = await client.discovery(36, request.signal);
       await reveal(items, request.signal);
-      statusText = `Готово: ${items.length} ігор. Добірка зміниться після нового запуску.`;
+      statusText = `Готово: ${items.length} ігор, ${items.flatMap((item) => item.releases).length} релізів.`;
     } catch (error) {
       if (!request.signal.aborted) {
         statusText = error instanceof Error ? error.message : 'Не вдалося сформувати добірку.';
@@ -128,7 +136,7 @@
     activeRequest = request;
     loading = true;
     selected = null;
-    statusText = query.trim() ? `Шукаю «${query.trim()}»…` : 'Показую усі доступні ігри…';
+    statusText = query.trim() ? `Шукаю «${query.trim()}»…` : 'Показую доступні релізи…';
     try {
       const items = await client.search(
         {
@@ -141,8 +149,9 @@
         request.signal,
       );
       await reveal(items, request.signal);
+      const releaseCount = items.flatMap((item) => item.releases).length;
       statusText = items.length
-        ? `Знайдено ${items.length} ігор. Сортування змінює лише порядок.`
+        ? `Знайдено ${items.length} ігор і ${releaseCount} платформних релізів. Сортування змінює лише порядок.`
         : 'За поточним запитом нічого не знайдено.';
     } catch (error) {
       if (!request.signal.aborted) {
@@ -201,7 +210,7 @@
     lists = [updatedList, ...lists.filter((item) => item.id !== updatedList.id)];
     entries = [...entries, entry];
     snapshots = new Map(snapshots).set(release.id, { game: result.game, release });
-    statusText = `${result.game.title} додано до колекції.`;
+    statusText = `${result.game.title} — ${release.platform.name} додано до колекції.`;
   }
 
   async function removeEntry(entry: CollectionEntry): Promise<void> {
@@ -365,12 +374,12 @@
             <p>КАТАЛОГ РЕЛІЗІВ</p>
             <h1>{query.trim() ? `Результати: ${query.trim()}` : 'Випадкова добірка'}</h1>
           </div>
-          <span>{filteredResults.length} ІГОР</span>
+          <span>{filteredResults.length} РЕЛІЗІВ</span>
         </div>
 
         {#if filteredResults.length}
           <div class="game-grid">
-            {#each filteredResults as result, index (result.game.id)}
+            {#each filteredResults as result, index (result.releases[0]?.id ?? result.game.id)}
               {@const releaseId = result.releases[0]?.id}
               <GameCard
                 owned={Boolean(releaseId && entries.some((entry) => entry.releaseId === releaseId))}
@@ -378,7 +387,7 @@
                 onToggle={() => void toggleCollection(result)}
                 revealIndex={index}
                 {result}
-                selected={selected?.game.id === result.game.id}
+                selected={selected?.releases[0]?.id === releaseId}
               />
             {/each}
           </div>
