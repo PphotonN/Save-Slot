@@ -75,14 +75,14 @@ Double-click:
 START_SAVE_SLOT.bat
 ```
 
-No separate Node.js, npm, pnpm or Corepack installation is required. On the first launch the launcher automatically:
+No separate Node.js, npm, pnpm or Corepack installation is required. On the first launch, or after a runtime update, the launcher automatically:
 
 - detects the Windows processor architecture;
-- downloads portable Node.js into the local `.runtime` directory;
+- downloads portable Node.js 24.18.0 LTS into the local `.runtime` directory;
 - verifies the downloaded archive using the official SHA-256 list;
 - installs the required pnpm version into `.runtime`;
 - creates `apps/web/.env` and `apps/api/.dev.vars` when missing;
-- installs or updates project dependencies;
+- installs, updates or rebuilds project dependencies for the active runtime;
 - opens the Worker and web application in separate terminal windows;
 - waits for the local servers and opens `http://localhost:5173`.
 
@@ -97,13 +97,13 @@ chmod +x start-save-slot.sh
 ./start-save-slot.sh
 ```
 
-Press `Ctrl+C` to stop both processes.
+This launcher expects Node.js 24 or newer. Press `Ctrl+C` to stop both processes.
 
 ## Local development
 
 Manual development requires:
 
-- Node.js 20.19 or newer;
+- Node.js 24 or newer; the pinned local/CI version is 24.18.0 LTS;
 - pnpm 10.14.
 
 ```bash
