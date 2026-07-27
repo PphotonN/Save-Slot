@@ -52,7 +52,7 @@ export default defineConfig({
   webServer: {
     command: `pnpm --filter @save-slot/web build && pnpm --filter @save-slot/web preview --host 127.0.0.1 --port ${port}`,
     url: `http://127.0.0.1:${port}`,
-    reuseExistingServer: !process.env.CI,
+    reuseExistingServer: false,
     timeout: 180_000,
     stdout: 'pipe',
     stderr: 'pipe',
