@@ -24,6 +24,8 @@ export interface CollectionRepository {
   deleteEntry(id: string): Promise<void>;
   listLists(): Promise<UserList[]>;
   putList(list: UserList): Promise<void>;
+  deleteList(id: string): Promise<void>;
+  setEntryLists(entryId: string, listIds: string[]): Promise<void>;
   putSnapshot(snapshot: ReleaseSnapshot): Promise<void>;
   getSnapshot(releaseId: string): Promise<ReleaseSnapshot | undefined>;
   exportData(): Promise<CollectionExport>;
@@ -69,18 +71,92 @@ function openDatabase(): Promise<IDBDatabase> {
   });
 }
 
-export function createDefaultList(): UserList {
+function uniqueExisting(values: string[], existing: Set<string>): string[] {
+  return [...new Set(values)].filter((value) => existing.has(value));
+}
+
+export function normalizeCollectionMembership(
+  entriesInput: CollectionEntry[],
+  listsInput: UserList[],
+): { entries: CollectionEntry[]; lists: UserList[] } {
+  const entries = entriesInput.map((entry) => collectionEntrySchema.parse(entry));
+  const lists = listsInput.map((list) => userListSchema.parse(list));
+  const entryIds = new Set(entries.map((entry) => entry.id));
+  const listIds = new Set(lists.map((list) => list.id));
+  const memberships = new Map(entries.map((entry) => [entry.id, new Set(uniqueExisting(entry.listIds, listIds))]));
+
+  for (const list of lists) {
+    for (const entryId of uniqueExisting(list.entryIds, entryIds)) {
+      memberships.get(entryId)?.add(list.id);
+    }
+  }
+
+  const normalizedEntries = entries.map((entry) => ({
+    ...entry,
+    listIds: [...(memberships.get(entry.id) ?? [])],
+  }));
+  const normalizedLists = lists.map((list) => ({
+    ...list,
+    entryIds: normalizedEntries
+      .filter((entry) => entry.listIds.includes(list.id))
+      .map((entry) => entry.id),
+  }));
+
+  return {
+    entries: normalizedEntries.map((entry) => collectionEntrySchema.parse(entry)),
+    lists: normalizedLists.map((list) => userListSchema.parse(list)),
+  };
+}
+
+export function createUserList(
+  name: string,
+  preset: UserList['preset'] = 'custom',
+): UserList {
   const now = new Date().toISOString();
   return userListSchema.parse({
     id: makeLocalId('list'),
-    name: 'Моя колекція',
-    preset: 'collection',
+    name: name.trim(),
+    preset,
     entryIds: [],
     preferredView: 'rows',
     sort: 'manual',
     createdAt: now,
     updatedAt: now,
   });
+}
+
+export function createDefaultList(): UserList {
+  return createUserList('Моя колекція', 'collection');
+}
+
+function updateListMembership(
+  list: UserList,
+  entryId: string,
+  included: boolean,
+  now: string,
+): UserList {
+  const entryIds = included
+    ? [...new Set([...list.entryIds, entryId])]
+    : list.entryIds.filter((id) => id !== entryId);
+  if (entryIds.length === list.entryIds.length && entryIds.every((id, index) => id === list.entryIds[index])) {
+    return list;
+  }
+  return userListSchema.parse({ ...list, entryIds, updatedAt: now });
+}
+
+function updateEntryMembership(
+  entry: CollectionEntry,
+  listId: string,
+  included: boolean,
+  now: string,
+): CollectionEntry {
+  const listIds = included
+    ? [...new Set([...entry.listIds, listId])]
+    : entry.listIds.filter((id) => id !== listId);
+  if (listIds.length === entry.listIds.length && listIds.every((id, index) => id === entry.listIds[index])) {
+    return entry;
+  }
+  return collectionEntrySchema.parse({ ...entry, listIds, updatedAt: now });
 }
 
 export class MemoryCollectionRepository implements CollectionRepository {
@@ -94,18 +170,23 @@ export class MemoryCollectionRepository implements CollectionRepository {
 
   async putEntry(entry: CollectionEntry): Promise<void> {
     const parsed = collectionEntrySchema.parse(entry);
-    this.entries.set(parsed.id, structuredClone(parsed));
+    const validListIds = uniqueExisting(parsed.listIds, new Set(this.lists.keys()));
+    const updated = collectionEntrySchema.parse({ ...parsed, listIds: validListIds });
+    this.entries.set(updated.id, structuredClone(updated));
+    const now = new Date().toISOString();
+    for (const [listId, list] of this.lists) {
+      this.lists.set(
+        listId,
+        structuredClone(updateListMembership(list, updated.id, validListIds.includes(listId), now)),
+      );
+    }
   }
 
   async deleteEntry(id: string): Promise<void> {
     this.entries.delete(id);
+    const now = new Date().toISOString();
     for (const [listId, list] of this.lists) {
-      if (!list.entryIds.includes(id)) continue;
-      this.lists.set(listId, {
-        ...list,
-        entryIds: list.entryIds.filter((entryId) => entryId !== id),
-        updatedAt: new Date().toISOString(),
-      });
+      this.lists.set(listId, structuredClone(updateListMembership(list, id, false, now)));
     }
   }
 
@@ -115,7 +196,39 @@ export class MemoryCollectionRepository implements CollectionRepository {
 
   async putList(list: UserList): Promise<void> {
     const parsed = userListSchema.parse(list);
-    this.lists.set(parsed.id, structuredClone(parsed));
+    const validEntryIds = uniqueExisting(parsed.entryIds, new Set(this.entries.keys()));
+    const updated = userListSchema.parse({ ...parsed, entryIds: validEntryIds });
+    this.lists.set(updated.id, structuredClone(updated));
+    const now = new Date().toISOString();
+    for (const [entryId, entry] of this.entries) {
+      this.entries.set(
+        entryId,
+        structuredClone(updateEntryMembership(entry, updated.id, validEntryIds.includes(entryId), now)),
+      );
+    }
+  }
+
+  async deleteList(id: string): Promise<void> {
+    this.lists.delete(id);
+    const now = new Date().toISOString();
+    for (const [entryId, entry] of this.entries) {
+      this.entries.set(entryId, structuredClone(updateEntryMembership(entry, id, false, now)));
+    }
+  }
+
+  async setEntryLists(entryId: string, listIds: string[]): Promise<void> {
+    const entry = this.entries.get(entryId);
+    if (!entry) throw new Error(`Collection entry not found: ${entryId}`);
+    const valid = uniqueExisting(listIds, new Set(this.lists.keys()));
+    const now = new Date().toISOString();
+    const updated = collectionEntrySchema.parse({ ...entry, listIds: valid, updatedAt: now });
+    this.entries.set(entryId, structuredClone(updated));
+    for (const [listId, list] of this.lists) {
+      this.lists.set(
+        listId,
+        structuredClone(updateListMembership(list, entryId, valid.includes(listId), now)),
+      );
+    }
   }
 
   async putSnapshot(snapshot: ReleaseSnapshot): Promise<void> {
@@ -129,21 +242,23 @@ export class MemoryCollectionRepository implements CollectionRepository {
   }
 
   async exportData(): Promise<CollectionExport> {
+    const membership = normalizeCollectionMembership(await this.listEntries(), await this.listLists());
     return collectionExportSchema.parse({
       format: 'save-slot-collection',
       version: 1,
       exportedAt: new Date().toISOString(),
-      lists: await this.listLists(),
-      entries: await this.listEntries(),
+      lists: membership.lists,
+      entries: membership.entries,
       snapshots: structuredClone([...this.snapshots.values()]),
     });
   }
 
   async importData(payload: unknown): Promise<void> {
     const data = collectionExportSchema.parse(payload);
+    const membership = normalizeCollectionMembership(data.entries, data.lists);
     await this.clear();
-    for (const list of data.lists) await this.putList(list);
-    for (const entry of data.entries) await this.putEntry(entry);
+    for (const entry of membership.entries) this.entries.set(entry.id, structuredClone(entry));
+    for (const list of membership.lists) this.lists.set(list.id, structuredClone(list));
     for (const snapshot of data.snapshots) await this.putSnapshot(snapshot);
   }
 
@@ -179,7 +294,21 @@ export class IndexedDbCollectionRepository implements CollectionRepository {
   }
 
   async putEntry(entry: CollectionEntry): Promise<void> {
-    await this.put(ENTRY_STORE, collectionEntrySchema.parse(entry));
+    const parsed = collectionEntrySchema.parse(entry);
+    const database = await this.databasePromise;
+    const transaction = database.transaction([ENTRY_STORE, LIST_STORE], 'readwrite');
+    const completed = transactionComplete(transaction);
+    const entryStore = transaction.objectStore(ENTRY_STORE);
+    const listStore = transaction.objectStore(LIST_STORE);
+    const lists = (await requestResult(listStore.getAll())).map((list) => userListSchema.parse(list));
+    const validListIds = uniqueExisting(parsed.listIds, new Set(lists.map((list) => list.id)));
+    const updated = collectionEntrySchema.parse({ ...parsed, listIds: validListIds });
+    entryStore.put(updated);
+    const now = new Date().toISOString();
+    for (const list of lists) {
+      listStore.put(updateListMembership(list, updated.id, validListIds.includes(list.id), now));
+    }
+    await completed;
   }
 
   async deleteEntry(id: string): Promise<void> {
@@ -189,14 +318,8 @@ export class IndexedDbCollectionRepository implements CollectionRepository {
     transaction.objectStore(ENTRY_STORE).delete(id);
     const listStore = transaction.objectStore(LIST_STORE);
     const lists = (await requestResult(listStore.getAll())).map((list) => userListSchema.parse(list));
-    for (const list of lists) {
-      if (!list.entryIds.includes(id)) continue;
-      listStore.put({
-        ...list,
-        entryIds: list.entryIds.filter((entryId) => entryId !== id),
-        updatedAt: new Date().toISOString(),
-      });
-    }
+    const now = new Date().toISOString();
+    for (const list of lists) listStore.put(updateListMembership(list, id, false, now));
     await completed;
   }
 
@@ -205,7 +328,55 @@ export class IndexedDbCollectionRepository implements CollectionRepository {
   }
 
   async putList(list: UserList): Promise<void> {
-    await this.put(LIST_STORE, userListSchema.parse(list));
+    const parsed = userListSchema.parse(list);
+    const database = await this.databasePromise;
+    const transaction = database.transaction([ENTRY_STORE, LIST_STORE], 'readwrite');
+    const completed = transactionComplete(transaction);
+    const entryStore = transaction.objectStore(ENTRY_STORE);
+    const listStore = transaction.objectStore(LIST_STORE);
+    const entries = (await requestResult(entryStore.getAll())).map((entry) => collectionEntrySchema.parse(entry));
+    const validEntryIds = uniqueExisting(parsed.entryIds, new Set(entries.map((entry) => entry.id)));
+    const updated = userListSchema.parse({ ...parsed, entryIds: validEntryIds });
+    listStore.put(updated);
+    const now = new Date().toISOString();
+    for (const entry of entries) {
+      entryStore.put(updateEntryMembership(entry, updated.id, validEntryIds.includes(entry.id), now));
+    }
+    await completed;
+  }
+
+  async deleteList(id: string): Promise<void> {
+    const database = await this.databasePromise;
+    const transaction = database.transaction([ENTRY_STORE, LIST_STORE], 'readwrite');
+    const completed = transactionComplete(transaction);
+    const entryStore = transaction.objectStore(ENTRY_STORE);
+    transaction.objectStore(LIST_STORE).delete(id);
+    const entries = (await requestResult(entryStore.getAll())).map((entry) => collectionEntrySchema.parse(entry));
+    const now = new Date().toISOString();
+    for (const entry of entries) entryStore.put(updateEntryMembership(entry, id, false, now));
+    await completed;
+  }
+
+  async setEntryLists(entryId: string, listIds: string[]): Promise<void> {
+    const database = await this.databasePromise;
+    const transaction = database.transaction([ENTRY_STORE, LIST_STORE], 'readwrite');
+    const completed = transactionComplete(transaction);
+    const entryStore = transaction.objectStore(ENTRY_STORE);
+    const listStore = transaction.objectStore(LIST_STORE);
+    const rawEntry = await requestResult(entryStore.get(entryId));
+    if (!rawEntry) {
+      transaction.abort();
+      throw new Error(`Collection entry not found: ${entryId}`);
+    }
+    const entry = collectionEntrySchema.parse(rawEntry);
+    const lists = (await requestResult(listStore.getAll())).map((list) => userListSchema.parse(list));
+    const valid = uniqueExisting(listIds, new Set(lists.map((list) => list.id)));
+    const now = new Date().toISOString();
+    entryStore.put(collectionEntrySchema.parse({ ...entry, listIds: valid, updatedAt: now }));
+    for (const list of lists) {
+      listStore.put(updateListMembership(list, entryId, valid.includes(list.id), now));
+    }
+    await completed;
   }
 
   async putSnapshot(snapshot: ReleaseSnapshot): Promise<void> {
@@ -222,12 +393,13 @@ export class IndexedDbCollectionRepository implements CollectionRepository {
   }
 
   async exportData(): Promise<CollectionExport> {
+    const membership = normalizeCollectionMembership(await this.listEntries(), await this.listLists());
     return collectionExportSchema.parse({
       format: 'save-slot-collection',
       version: 1,
       exportedAt: new Date().toISOString(),
-      lists: await this.listLists(),
-      entries: await this.listEntries(),
+      lists: membership.lists,
+      entries: membership.entries,
       snapshots: (await this.readAll<unknown>(SNAPSHOT_STORE)).map((snapshot) =>
         releaseSnapshotSchema.parse(snapshot),
       ),
@@ -236,6 +408,7 @@ export class IndexedDbCollectionRepository implements CollectionRepository {
 
   async importData(payload: unknown): Promise<void> {
     const data = collectionExportSchema.parse(payload);
+    const membership = normalizeCollectionMembership(data.entries, data.lists);
     const database = await this.databasePromise;
     const transaction = database.transaction(
       [ENTRY_STORE, LIST_STORE, SNAPSHOT_STORE],
@@ -248,8 +421,8 @@ export class IndexedDbCollectionRepository implements CollectionRepository {
     entryStore.clear();
     listStore.clear();
     snapshotStore.clear();
-    for (const entry of data.entries) entryStore.put(entry);
-    for (const list of data.lists) listStore.put(list);
+    for (const entry of membership.entries) entryStore.put(entry);
+    for (const list of membership.lists) listStore.put(list);
     for (const snapshot of data.snapshots) snapshotStore.put(snapshot);
     await completed;
   }
@@ -276,7 +449,8 @@ export function createCollectionRepository(): CollectionRepository {
 
 export async function ensureDefaultList(repository: CollectionRepository): Promise<UserList> {
   const existing = await repository.listLists();
-  if (existing[0]) return existing[0];
+  const collection = existing.find((list) => list.preset === 'collection');
+  if (collection) return collection;
   const list = createDefaultList();
   await repository.putList(list);
   return list;
