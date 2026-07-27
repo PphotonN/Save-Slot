@@ -33,6 +33,9 @@ The branch contains a functional application foundation:
 - random discovery on every application start;
 - search, platform filtering and sorting implemented as separate operations;
 - progressive left-to-right card reveal and row filling;
+- multi-release game selection and sourced detail tabs;
+- cached online game/release detail routes;
+- searchable and editable personal collection;
 - desktop left-side slot and smartphone layout;
 - collection views: compact list, medium rows and cartridges;
 - rigid cartridge insertion animation that preserves cover aspect ratio;
@@ -45,7 +48,11 @@ The branch contains a functional application foundation:
 2. Platform labels are normalized into shared Save Slot IDs.
 3. **Libretro Named_Boxarts** verifies platform-specific retro/console covers.
 4. **Steam Store and Steam Reviews** enrich linked PC releases with vertical box art, official description, screenshots and player rating with vote count.
-5. Representative fixtures remain a deterministic offline/provider-failure fallback.
+5. Normalized search pages are cached independently from sorting.
+6. Every discovered game and release receives a stable detail-cache key.
+7. Representative fixtures remain a deterministic offline/provider-failure fallback.
+
+The catalogue cache uses Worker memory, Cache API when available and an optional KV-compatible `CATALOG_CACHE` binding. Local development requires no Cloudflare credentials.
 
 IGDB, MobyGames and RAWG remain deferred until credentials, attribution and current terms are reviewed.
 
@@ -57,6 +64,8 @@ While the app is running locally, collection data is stored in two places:
 - `.save-slot-data/library.json` inside the repository is the persistent project copy.
 
 Before each file replacement, the previous project copy is preserved as `.save-slot-data/library.backup.json`. The entire `.save-slot-data` directory is ignored by Git so personal collection data is not committed accidentally.
+
+The personal collection file and public catalogue cache are separate systems. Catalogue caching never stores personal ratings, notes, prices or account data.
 
 ## Workspace
 
@@ -133,6 +142,15 @@ pnpm dev
 
 Without `VITE_SAVE_SLOT_API_URL`, the web app deliberately falls back to the local representative catalogue.
 
+Useful local diagnostics:
+
+```text
+http://localhost:8787/health
+http://localhost:8787/v1/providers
+http://localhost:8787/v1/cache
+http://127.0.0.1:8791/health
+```
+
 Validation:
 
 ```bash
@@ -150,6 +168,7 @@ No API credentials may be placed in client-side variables. `VITE_SAVE_SLOT_API_U
 - [Architecture](docs/ARCHITECTURE.md)
 - [Data model](docs/DATA_MODEL.md)
 - [Data-source strategy](docs/DATA_SOURCES.md)
+- [Catalogue cache](docs/CATALOG_CACHE.md)
 - [UX and visual specification](docs/UX_UI.md)
 - [Security and privacy](docs/SECURITY_AND_PRIVACY.md)
 - [Technical decisions](docs/DECISIONS.md)
@@ -166,4 +185,5 @@ No API credentials may be placed in client-side variables. `VITE_SAVE_SLOT_API_U
 - Every rating and media item must retain its source and scope.
 - Filtering, sorting and rendering must remain independent.
 - Cartridge rows fill from left to right on desktop and mobile.
+- Personal collection data and public catalogue cache data must remain separated.
 - Desktop and mobile layouts are designed together.
