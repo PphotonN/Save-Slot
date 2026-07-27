@@ -14,6 +14,10 @@ const searchResponseSchema = z.object({
   nextCursor: z.string().optional(),
 });
 
+function browserLocale(): string {
+  return typeof navigator === 'undefined' ? 'uk' : navigator.language || 'uk';
+}
+
 export class CatalogClient {
   constructor(private readonly apiUrl = import.meta.env.VITE_SAVE_SLOT_API_URL ?? '') {}
 
@@ -26,6 +30,7 @@ export class CatalogClient {
       try {
         const url = new URL('/v1/search', this.apiUrl);
         url.searchParams.set('q', request.query);
+        url.searchParams.set('locale', request.locale ?? browserLocale());
         url.searchParams.set('sort', sort);
         url.searchParams.set('limit', String(request.limit ?? 60));
         if (request.platformId) url.searchParams.set('platform', request.platformId);
@@ -46,6 +51,7 @@ export class CatalogClient {
       try {
         const url = new URL('/v1/discovery', this.apiUrl);
         url.searchParams.set('limit', String(limit));
+        url.searchParams.set('locale', browserLocale());
         const response = await fetch(url, { signal });
         if (!response.ok) throw new Error(`Discovery API returned HTTP ${response.status}`);
         return searchResponseSchema.parse(await response.json()).items;
