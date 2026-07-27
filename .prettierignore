@@ -1,0 +1,8 @@
+node_modules
+.pnpm-store
+.svelte-kit
+build
+dist
+coverage
+.wrangler
+legacy
