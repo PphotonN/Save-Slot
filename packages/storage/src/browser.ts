@@ -28,6 +28,25 @@ export type { CollectionRepository };
 const PROJECT_LIBRARY_URL = 'http://127.0.0.1:8791';
 const FILE_WRITE_DELAY_MS = 120;
 
+interface CapacitorBridge {
+  isNativePlatform?: () => boolean;
+  getPlatform?: () => string;
+}
+
+type WindowWithCapacitor = Window & { Capacitor?: CapacitorBridge };
+
+function isNativeCapacitorPlatform(): boolean {
+  if (typeof window === 'undefined') return false;
+  const bridge = (window as WindowWithCapacitor).Capacitor;
+  if (!bridge) return false;
+  try {
+    if (bridge.isNativePlatform?.()) return true;
+    return ['android', 'ios'].includes(bridge.getPlatform?.() ?? '');
+  } catch {
+    return false;
+  }
+}
+
 function emitCacheStatus(status: 'ready' | 'saved' | 'unavailable' | 'error', message: string): void {
   if (typeof window === 'undefined') return;
   window.dispatchEvent(
@@ -188,5 +207,13 @@ export function createCollectionRepository(): CollectionRepository {
     typeof indexedDB === 'undefined'
       ? new MemoryCollectionRepository()
       : new IndexedDbCollectionRepository();
-  return typeof window === 'undefined' ? base : new ProjectFileMirroredRepository(base);
+
+  if (typeof window === 'undefined' || isNativeCapacitorPlatform()) {
+    if (typeof window !== 'undefined') {
+      queueMicrotask(() => emitCacheStatus('ready', 'IndexedDB · local app storage'));
+    }
+    return base;
+  }
+
+  return new ProjectFileMirroredRepository(base);
 }
