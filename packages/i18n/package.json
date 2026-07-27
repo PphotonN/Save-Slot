@@ -10,6 +10,9 @@
     "check": "tsc --noEmit",
     "test": "vitest run"
   },
+  "dependencies": {
+    "@save-slot/domain": "workspace:*"
+  },
   "devDependencies": {
     "typescript": "catalog:",
     "vitest": "catalog:"
