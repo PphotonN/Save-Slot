@@ -12,7 +12,7 @@ jobs:
   quality:
     name: Typecheck, tests and build
     runs-on: ubuntu-latest
-    timeout-minutes: 20
+    timeout-minutes: 25
     steps:
       - name: Checkout
         uses: actions/checkout@v6
@@ -44,10 +44,15 @@ jobs:
       - name: Build applications
         run: pnpm build
 
+      - name: Build web application for a static subpath
+        run: pnpm --filter @save-slot/web build
+        env:
+          SAVE_SLOT_BASE_PATH: /Save-Slot
+
   acceptance:
-    name: Desktop and smartphone acceptance
+    name: Desktop, smartphone and offline PWA acceptance
     runs-on: ubuntu-latest
-    timeout-minutes: 25
+    timeout-minutes: 30
     steps:
       - name: Checkout
         uses: actions/checkout@v6
