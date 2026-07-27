@@ -9,7 +9,13 @@ printf '  SAVE SLOT v1 - LOCAL LAUNCHER\n'
 printf '========================================\n\n'
 
 if ! command -v node >/dev/null 2>&1; then
-  printf '[ERROR] Node.js 20.19 or newer is required.\n' >&2
+  printf '[ERROR] Node.js 24 or newer is required.\n' >&2
+  exit 1
+fi
+
+NODE_MAJOR="$(node -p "Number(process.versions.node.split('.')[0])")"
+if (( NODE_MAJOR < 24 )); then
+  printf '[ERROR] Node.js 24 or newer is required. Current version: %s\n' "$(node --version)" >&2
   exit 1
 fi
 
@@ -36,17 +42,22 @@ if [[ ! -f apps/api/.dev.vars ]]; then
   cp apps/api/.dev.vars.example apps/api/.dev.vars
 fi
 
-if [[ ! -d node_modules/.pnpm ]]; then
-  printf '[SETUP] Installing dependencies. This is required only on the first launch...\n'
-  "${PNPM[@]}" install
-fi
+printf '[SETUP] Installing or updating dependencies...\n'
+"${PNPM[@]}" install --prefer-offline --frozen-lockfile=false
 
 cleanup() {
   trap - EXIT INT TERM
+  [[ -n "${LIBRARY_PID:-}" ]] && kill "$LIBRARY_PID" 2>/dev/null || true
   [[ -n "${API_PID:-}" ]] && kill "$API_PID" 2>/dev/null || true
   [[ -n "${WEB_PID:-}" ]] && kill "$WEB_PID" 2>/dev/null || true
 }
 trap cleanup EXIT INT TERM
+
+printf '[START] Launching project library cache on http://127.0.0.1:8791 ...\n'
+"${PNPM[@]}" dev:library &
+LIBRARY_PID=$!
+
+sleep 1
 
 printf '[START] Launching Save Slot API on http://localhost:8787 ...\n'
 "${PNPM[@]}" dev:api &
@@ -65,5 +76,6 @@ elif command -v open >/dev/null 2>&1; then
   open http://localhost:5173 >/dev/null 2>&1 || true
 fi
 
-printf '\nSave Slot is running. Press Ctrl+C to stop both processes.\n\n'
+printf '\nSave Slot is running. The collection is mirrored to .save-slot-data/library.json.\n'
+printf 'Press Ctrl+C to stop all three processes.\n\n'
 wait "$WEB_PID"
