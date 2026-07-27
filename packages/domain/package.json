@@ -6,7 +6,8 @@
   "exports": {
     ".": "./src/index.ts",
     "./fixtures": "./src/fixtures.ts",
-    "./platforms": "./src/platforms.ts"
+    "./platforms": "./src/platforms.ts",
+    "./media": "./src/media.ts"
   },
   "scripts": {
     "check": "tsc --noEmit",
