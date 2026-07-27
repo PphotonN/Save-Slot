@@ -22,6 +22,7 @@
   import { CatalogClient } from '$lib/catalog-client';
 
   type Tab = 'search' | 'collection' | 'discovery' | 'settings';
+  type LibraryCacheState = 'loading' | 'ready' | 'saved' | 'unavailable' | 'error';
 
   const client = new CatalogClient();
   let repository: CollectionRepository;
@@ -41,6 +42,8 @@
   let snapshots = $state<Map<string, ReleaseSnapshot>>(new Map());
   let collectionView = $state<CollectionView>('rows');
   let locale = $state<SupportedLocale>('uk');
+  let libraryCacheState = $state<LibraryCacheState>('loading');
+  let libraryCacheMessage = $state('Підключення до локального файлу колекції…');
   let importInput: HTMLInputElement;
 
   let releaseResults = $derived.by(() =>
@@ -281,11 +284,24 @@
     activeTab = tab;
   }
 
-  onMount(async () => {
-    locale = detectLocale(localStorage.getItem('save-slot-locale'));
-    repository = createCollectionRepository();
-    await loadCollection();
-    await loadDiscovery();
+  onMount(() => {
+    const handleLibraryCacheStatus = (event: Event) => {
+      const detail = (event as CustomEvent<{ status: LibraryCacheState; message: string }>).detail;
+      if (!detail) return;
+      libraryCacheState = detail.status;
+      libraryCacheMessage = detail.message;
+    };
+
+    window.addEventListener('save-slot-library-cache', handleLibraryCacheStatus);
+
+    void (async () => {
+      locale = detectLocale(localStorage.getItem('save-slot-locale'));
+      repository = createCollectionRepository();
+      await loadCollection();
+      await loadDiscovery();
+    })();
+
+    return () => window.removeEventListener('save-slot-library-cache', handleLibraryCacheStatus);
   });
 </script>
 
@@ -428,7 +444,15 @@
           </label>
           <div class="settings-card">
             <span>ЛОКАЛЬНІ ДАНІ</span>
-            <p>Колекція зберігається в IndexedDB цього пристрою. Каталог не копіюється повністю.</p>
+            <p>
+              Робоча копія зберігається в IndexedDB, а вся колекція автоматично дублюється у
+              <code>.save-slot-data/library.json</code> всередині папки проєкту. Попередня версія файла
+              зберігається як <code>library.backup.json</code>.
+            </p>
+            <div class:problem={libraryCacheState === 'error' || libraryCacheState === 'unavailable'} class="cache-status">
+              <span>{libraryCacheState === 'saved' || libraryCacheState === 'ready' ? '●' : '○'}</span>
+              <small>{libraryCacheMessage}</small>
+            </div>
             <div class="settings-actions">
               <button class="primary-button" onclick={() => void exportCollection()} type="button">ЕКСПОРТ JSON</button>
               <button class="secondary-button" onclick={() => importInput.click()} type="button">ІМПОРТ JSON</button>
@@ -491,6 +515,25 @@
     margin: 0;
     color: var(--muted-light);
     line-height: 1.55;
+  }
+
+  .settings-card code {
+    color: var(--accent-cool);
+  }
+
+  .cache-status {
+    display: flex;
+    align-items: center;
+    gap: 0.55rem;
+    color: var(--accent-cool);
+  }
+
+  .cache-status.problem {
+    color: var(--danger);
+  }
+
+  .cache-status small {
+    line-height: 1.45;
   }
 
   .settings-actions {
