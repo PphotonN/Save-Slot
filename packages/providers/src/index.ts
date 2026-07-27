@@ -137,6 +137,7 @@ export async function searchWithFallback(
   );
   const items = new Map<string, SearchResult>();
   const statuses: ProviderStatus[] = [];
+  const cursors: string[] = [];
 
   settled.forEach((result, index) => {
     const provider = providers[index];
@@ -159,6 +160,7 @@ export async function searchWithFallback(
         });
       }
       statuses.push(...result.value.providers);
+      if (result.value.nextCursor) cursors.push(result.value.nextCursor);
     } else {
       statuses.push({
         id: provider.id,
@@ -170,6 +172,7 @@ export async function searchWithFallback(
 
   return {
     items: [...items.values()],
+    ...(cursors[0] ? { nextCursor: cursors[0] } : {}),
     providers: statuses,
   };
 }
