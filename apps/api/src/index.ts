@@ -1,6 +1,8 @@
 import {
+  getDescription,
   releaseSnapshotSchema,
   searchResultSchema,
+  type ReleaseSnapshot,
   type SearchResult,
 } from '@save-slot/domain';
 import { fixtureSearchResults } from '@save-slot/domain/fixtures';
@@ -29,6 +31,13 @@ interface Env extends CatalogCacheEnvironment {
   ALLOWED_ORIGIN?: string;
 }
 
+interface SearchSuggestion {
+  id: string;
+  title: string;
+  description?: string;
+  platforms: string[];
+}
+
 type CacheStatus = 'hit' | 'miss' | 'bypass';
 
 const fixtureProvider = new FixtureProvider();
@@ -37,8 +46,10 @@ const libretroProvider = new LibretroMediaProvider({ timeoutMs: 3_000, maxCandid
 const steamProvider = new SteamMediaProvider({ timeoutMs: 7_000 });
 const validSorts = new Set<SearchSort>(['relevance', 'title', 'year', 'rating', 'votes']);
 const SEARCH_CACHE_TTL_SECONDS = 6 * 60 * 60;
+const SUGGESTION_CACHE_TTL_SECONDS = 12 * 60 * 60;
 const DETAIL_CACHE_TTL_SECONDS = 30 * 24 * 60 * 60;
-const CACHE_SCHEMA_VERSION = 'v2';
+const SEARCH_POOL_LIMIT = 40;
+const CACHE_SCHEMA_VERSION = 'v3';
 const discoverySeeds = [
   'Metroid',
   'Metal Gear',
@@ -104,19 +115,23 @@ function normalizedCachePart(value: string): string {
   return value.trim().toLocaleLowerCase('en-US').replace(/\s+/g, ' ');
 }
 
-function searchCacheKey(
-  query: string,
-  locale: string,
-  platformId: string | undefined,
-  limit: number,
-): string {
+function searchCacheKey(query: string, locale: string, platformId: string | undefined): string {
   return [
     'catalog',
     CACHE_SCHEMA_VERSION,
     'search',
     normalizedCachePart(locale),
     platformId ? normalizedCachePart(platformId) : 'all',
-    String(limit),
+    normalizedCachePart(query),
+  ].join(':');
+}
+
+function suggestionCacheKey(query: string, locale: string): string {
+  return [
+    'catalog',
+    CACHE_SCHEMA_VERSION,
+    'suggestions',
+    normalizedCachePart(locale),
     normalizedCachePart(query),
   ].join(':');
 }
@@ -199,15 +214,32 @@ function mergePages(pages: SearchPage[]): SearchPage {
       });
     }
   }
+  const nextCursor = pages.find((page) => page.nextCursor)?.nextCursor;
   return {
     items: [...items.values()],
+    ...(nextCursor ? { nextCursor } : {}),
     providers: pages.flatMap((page) => page.providers),
   };
 }
 
+function releaseAlreadyEnriched(result: SearchResult, releaseIndex: number): boolean {
+  const release = result.releases[releaseIndex];
+  if (!release) return true;
+  const verifiedCover = release.media.some(
+    (asset) => asset.kind === 'cover-front' && asset.verified,
+  );
+  if (!verifiedCover) return false;
+  if (release.platform.kind !== 'desktop') return true;
+  const steamRating = release.ratings.some((rating) => rating.source.provider === 'steam');
+  const steamDescription = result.game.descriptions.some(
+    (description) => description.source.provider === 'steam',
+  );
+  return steamRating || steamDescription;
+}
+
 function enrichersFor(result: SearchResult, releaseIndex: number): ReleaseEnricher[] {
   const release = result.releases[releaseIndex];
-  if (!release) return [];
+  if (!release || releaseAlreadyEnriched(result, releaseIndex)) return [];
   return release.platform.kind === 'desktop' ? [steamProvider] : [libretroProvider];
 }
 
@@ -215,7 +247,7 @@ async function enrichPage(
   page: SearchPage,
   locale: string,
   signal: AbortSignal,
-  maximumResults = 12,
+  maximumResults = page.items.length,
 ): Promise<SearchPage> {
   const items = [...page.items];
   const queue = items.slice(0, maximumResults).map((result, index) => ({ result, index }));
@@ -264,21 +296,6 @@ async function enrichPage(
   return { ...page, items, providers };
 }
 
-async function rememberPage(cache: CatalogCache, page: SearchPage): Promise<void> {
-  await Promise.all(
-    page.items.flatMap((result) => [
-      cache.put(gameCacheKey(result.game.id), result, DETAIL_CACHE_TTL_SECONDS),
-      ...result.releases.map((release) =>
-        cache.put(
-          releaseCacheKey(release.id),
-          { game: result.game, release },
-          DETAIL_CACHE_TTL_SECONDS,
-        ),
-      ),
-    ]),
-  );
-}
-
 async function cachedGame(cache: CatalogCache, gameId: string): Promise<SearchResult | undefined> {
   const cached = await cache.get<unknown>(gameCacheKey(gameId));
   const parsed = searchResultSchema.safeParse(cached);
@@ -290,7 +307,7 @@ async function cachedGame(cache: CatalogCache, gameId: string): Promise<SearchRe
 async function cachedRelease(
   cache: CatalogCache,
   releaseId: string,
-): Promise<ReturnType<typeof releaseSnapshotSchema.parse> | undefined> {
+): Promise<ReleaseSnapshot | undefined> {
   const cached = await cache.get<unknown>(releaseCacheKey(releaseId));
   const parsed = releaseSnapshotSchema.safeParse(cached);
   if (parsed.success) return parsed.data;
@@ -298,22 +315,56 @@ async function cachedRelease(
   return undefined;
 }
 
+async function rememberPage(cache: CatalogCache, page: SearchPage): Promise<void> {
+  for (const result of page.items) {
+    const previous = await cachedGame(cache, result.game.id);
+    const merged = previous
+      ? (mergePages([
+          { items: [previous], providers: [] },
+          { items: [result], providers: [] },
+        ]).items[0] ?? result)
+      : result;
+    await cache.put(gameCacheKey(merged.game.id), merged, DETAIL_CACHE_TTL_SECONDS);
+    await Promise.all(
+      merged.releases.map((release) =>
+        cache.put(
+          releaseCacheKey(release.id),
+          { game: merged.game, release },
+          DETAIL_CACHE_TTL_SECONDS,
+        ),
+      ),
+    );
+  }
+}
+
+async function hydratePageFromDetails(cache: CatalogCache, page: SearchPage): Promise<SearchPage> {
+  const items = await Promise.all(
+    page.items.map(async (result) => {
+      const cached = await cachedGame(cache, result.game.id);
+      if (!cached) return result;
+      return mergePages([
+        { items: [result], providers: [] },
+        { items: [cached], providers: [] },
+      ]).items[0] ?? result;
+    }),
+  );
+  return { ...page, items };
+}
+
 async function searchCatalogue(
   cache: CatalogCache,
   query: string,
   locale: string,
   platformId: string | undefined,
-  limit: number,
   signal: AbortSignal,
 ): Promise<{ page: SearchPage; cacheStatus: CacheStatus }> {
-  const key = searchCacheKey(query, locale, platformId, limit);
+  const key = searchCacheKey(query, locale, platformId);
   const cached = await cache.get<SearchPage>(key);
   if (cached) {
-    await rememberPage(cache, cached);
-    return { page: cached, cacheStatus: 'hit' };
+    return { page: await hydratePageFromDetails(cache, cached), cacheStatus: 'hit' };
   }
 
-  const providerRequest = { query, locale, limit };
+  const providerRequest = { query, locale, limit: SEARCH_POOL_LIMIT };
   const online = filterPageByPlatform(
     normalizePage(await searchWithFallback([wikidataProvider], providerRequest, signal)),
     platformId,
@@ -327,10 +378,37 @@ async function searchCatalogue(
           platformId,
         ),
       ]);
-  const page = await enrichPage(basePage, locale, signal);
-  await cache.put(key, page, SEARCH_CACHE_TTL_SECONDS);
-  await rememberPage(cache, page);
-  return { page, cacheStatus: 'miss' };
+  await cache.put(key, basePage, SEARCH_CACHE_TTL_SECONDS);
+  return { page: await hydratePageFromDetails(cache, basePage), cacheStatus: 'miss' };
+}
+
+async function suggestionsCatalogue(
+  cache: CatalogCache,
+  query: string,
+  locale: string,
+  limit: number,
+  signal: AbortSignal,
+): Promise<{ items: SearchSuggestion[]; cacheStatus: CacheStatus }> {
+  const key = suggestionCacheKey(query, locale);
+  const cached = await cache.get<SearchSuggestion[]>(key);
+  if (cached) return { items: cached.slice(0, limit), cacheStatus: 'hit' };
+
+  const request = { query, locale, limit: Math.max(limit, 8) };
+  const online = normalizePage(await searchWithFallback([wikidataProvider], request, signal));
+  const page = online.items.length
+    ? online
+    : normalizePage(await fixtureProvider.search(request, signal));
+  const items = page.items.slice(0, limit).map((result) => {
+    const description = getDescription(result.game, locale)?.text;
+    return {
+      id: result.game.id,
+      title: result.game.title,
+      ...(description ? { description } : {}),
+      platforms: [...new Set(result.releases.map((release) => release.platform.name))].slice(0, 4),
+    };
+  });
+  await cache.put(key, items, SUGGESTION_CACHE_TTL_SECONDS);
+  return { items, cacheStatus: 'miss' };
 }
 
 async function discoveryCatalogue(
@@ -365,7 +443,8 @@ async function discoveryCatalogue(
         const merged = mergePages([online, fallback]);
         return { ...merged, items: shuffled(merged.items).slice(0, limit) };
       })();
-  const page = await enrichPage(basePage, locale, signal);
+  const hydrated = await hydratePageFromDetails(cache, basePage);
+  const page = await enrichPage(hydrated, locale, signal, limit);
   await rememberPage(cache, page);
   return page;
 }
@@ -385,7 +464,7 @@ export default {
     if (url.pathname === '/health') {
       return json(request, env, {
         service: 'save-slot-api',
-        version: '1.0.0-alpha.4',
+        version: '1.0.0-alpha.5',
         status: 'ok',
         time: new Date().toISOString(),
         cache: {
@@ -399,7 +478,9 @@ export default {
       return json(request, env, {
         schema: CACHE_SCHEMA_VERSION,
         searchTtlSeconds: SEARCH_CACHE_TTL_SECONDS,
+        suggestionTtlSeconds: SUGGESTION_CACHE_TTL_SECONDS,
         detailTtlSeconds: DETAIL_CACHE_TTL_SECONDS,
+        searchPoolLimit: SEARCH_POOL_LIMIT,
         backends: cache.backendSummary(),
         stats: cache.stats(),
       });
@@ -418,11 +499,21 @@ export default {
       });
     }
 
+    if (url.pathname === '/v1/suggestions') {
+      const query = url.searchParams.get('q')?.trim() ?? '';
+      const locale = url.searchParams.get('locale')?.trim() || 'uk';
+      const limit = integerParam(url.searchParams.get('limit'), 6, 1, 10);
+      if (query.length < 2) return json(request, env, { items: [], query, cache: 'bypass' });
+      const suggestions = await suggestionsCatalogue(cache, query, locale, limit, request.signal);
+      return json(request, env, { ...suggestions, query });
+    }
+
     if (url.pathname === '/v1/search') {
       const query = url.searchParams.get('q')?.trim() ?? '';
       const locale = url.searchParams.get('locale')?.trim() || 'uk';
       const platformId = url.searchParams.get('platform')?.trim() || undefined;
-      const limit = integerParam(url.searchParams.get('limit'), 30, 1, 100);
+      const limit = integerParam(url.searchParams.get('limit'), 18, 1, 24);
+      const offset = integerParam(url.searchParams.get('cursor'), 0, 0, SEARCH_POOL_LIMIT);
       const requestedSort = url.searchParams.get('sort') as SearchSort | null;
       const sort = requestedSort && validSorts.has(requestedSort) ? requestedSort : 'relevance';
       if (query) {
@@ -431,12 +522,23 @@ export default {
           query,
           locale,
           platformId,
-          limit,
           request.signal,
         );
+        const sorted = sortSearchResults(page.items, sort);
+        const rawItems = sorted.slice(offset, offset + limit);
+        const enriched = await enrichPage(
+          { items: rawItems, providers: page.providers },
+          locale,
+          request.signal,
+          rawItems.length,
+        );
+        await rememberPage(cache, enriched);
+        const nextOffset = offset + rawItems.length;
+        const nextCursor = nextOffset < sorted.length ? String(nextOffset) : undefined;
         return json(request, env, {
-          ...page,
-          items: sortSearchResults(page.items, sort),
+          ...enriched,
+          ...(nextCursor ? { nextCursor } : {}),
+          total: sorted.length,
           query,
           sort,
           cache: cacheStatus,
@@ -446,6 +548,7 @@ export default {
       return json(request, env, {
         ...page,
         items: sortSearchResults(page.items, sort),
+        total: page.items.length,
         query,
         sort,
         cache: 'bypass' satisfies CacheStatus,
@@ -458,6 +561,7 @@ export default {
       const page = await discoveryCatalogue(cache, locale, limit, request.signal);
       return json(request, env, {
         ...page,
+        total: page.items.length,
         session: crypto.randomUUID(),
         cache: 'bypass' satisfies CacheStatus,
       });
