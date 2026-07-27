@@ -39,8 +39,9 @@
   }
 
   function isJsonFile(file: File): boolean {
-    if (file.name.toLocaleLowerCase('en-US').endsWith('.json')) return true;
-    return file.type === '' || acceptedMimeTypes.has(file.type.toLocaleLowerCase('en-US'));
+    const type = file.type.toLocaleLowerCase('en-US');
+    if (acceptedMimeTypes.has(type)) return true;
+    return type === '' && file.name.toLocaleLowerCase('en-US').endsWith('.json');
   }
 
   function rejectImport(event: Event, input: HTMLInputElement, reason: 'large' | 'type'): void {
