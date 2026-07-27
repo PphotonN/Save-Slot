@@ -31,6 +31,8 @@ The branch contains a functional application foundation:
 - IndexedDB working copy with automatic project-folder mirroring;
 - versioned JSON export and import;
 - random discovery on every application start;
+- debounced search suggestions with platform and description context;
+- paged search that appends new cards without clearing existing DOM;
 - search, platform filtering and sorting implemented as separate operations;
 - progressive left-to-right card reveal and row filling;
 - multi-release game selection and sourced detail tabs;
@@ -48,11 +50,14 @@ The branch contains a functional application foundation:
 2. Platform labels are normalized into shared Save Slot IDs.
 3. **Libretro Named_Boxarts** verifies platform-specific retro/console covers.
 4. **Steam Store and Steam Reviews** enrich linked PC releases with vertical box art, official description, screenshots and player rating with vote count.
-5. Normalized search pages are cached independently from sorting.
-6. Every discovered game and release receives a stable detail-cache key.
-7. Representative fixtures remain a deterministic offline/provider-failure fallback.
+5. A bounded normalized search pool is cached independently from sorting and page cursor.
+6. Suggestions use their own short-result cache.
+7. Every discovered game and release receives a stable detail-cache key.
+8. Representative fixtures remain a deterministic offline/provider-failure fallback.
 
 The catalogue cache uses Worker memory, Cache API when available and an optional KV-compatible `CATALOG_CACHE` binding. Local development requires no Cloudflare credentials.
+
+Current search paging operates inside a normalized pool of up to 40 games per query. The interface loads 18 at a time and appends later pages while keeping accepted cards mounted.
 
 IGDB, MobyGames and RAWG remain deferred until credentials, attribution and current terms are reviewed.
 
