@@ -1,5 +1,9 @@
 import { fixtureSearchResults } from '@save-slot/domain/fixtures';
 import type { ProviderId, SearchResult } from '@save-slot/domain';
+import { reconcileSearchResults } from './reconcile';
+
+export { assessIdentity, mergeSearchResults, reconcileSearchResults } from './reconcile';
+export type { IdentityAssessment } from './reconcile';
 
 export interface SearchRequest {
   query: string;
@@ -137,7 +141,7 @@ export async function searchWithFallback(
   const settled = await Promise.allSettled(
     providers.map((provider) => provider.search(request, signal)),
   );
-  const items = new Map<string, SearchResult>();
+  const candidates: SearchResult[] = [];
   const statuses: ProviderStatus[] = [];
   const cursors: string[] = [];
   const totals: number[] = [];
@@ -146,22 +150,7 @@ export async function searchWithFallback(
     const provider = providers[index];
     if (!provider) return;
     if (result.status === 'fulfilled') {
-      for (const item of result.value.items) {
-        const previous = items.get(item.game.id);
-        if (!previous) {
-          items.set(item.game.id, item);
-          continue;
-        }
-        const releaseMap = new Map(
-          [...previous.releases, ...item.releases].map((release) => [release.id, release]),
-        );
-        items.set(item.game.id, {
-          ...previous,
-          releases: [...releaseMap.values()],
-          relevance: Math.max(previous.relevance, item.relevance),
-          providers: [...new Set([...previous.providers, ...item.providers])],
-        });
-      }
+      candidates.push(...result.value.items);
       statuses.push(...result.value.providers);
       if (result.value.nextCursor) cursors.push(result.value.nextCursor);
       if (result.value.total != null) totals.push(result.value.total);
@@ -174,10 +163,11 @@ export async function searchWithFallback(
     }
   });
 
+  const items = reconcileSearchResults(candidates);
   return {
-    items: [...items.values()],
+    items,
     ...(cursors[0] ? { nextCursor: cursors[0] } : {}),
-    ...(totals.length ? { total: Math.max(...totals) } : {}),
+    ...(totals.length ? { total: Math.max(Math.max(...totals), items.length) } : {}),
     providers: statuses,
   };
 }
