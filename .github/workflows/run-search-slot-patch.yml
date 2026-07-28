@@ -20,13 +20,9 @@ jobs:
           ref: feature/search-slot-ux
           fetch-depth: 0
 
-      - name: Extract and run prepared patch
+      - name: Extract prepared patch
         shell: bash
         run: |
-          if [[ ! -f .github/workflows/apply-search-slot-ux.yml ]]; then
-            echo 'Patch payload already applied.'
-            exit 0
-          fi
           python - <<'PY'
           import base64, gzip, pathlib, re
           source = pathlib.Path('.github/workflows/apply-search-slot-ux.yml').read_text(encoding='utf-8')
@@ -35,7 +31,30 @@ jobs:
               raise SystemExit('Encoded patch payload not found.')
           pathlib.Path('/tmp/apply-search-slot-ux.mjs').write_bytes(gzip.decompress(base64.b64decode(match.group(1))))
           PY
-          node /tmp/apply-search-slot-ux.mjs
+
+      - name: Run prepared patch
+        id: patch
+        continue-on-error: true
+        shell: bash
+        run: |
+          set -o pipefail
+          node /tmp/apply-search-slot-ux.mjs 2>&1 | tee /tmp/apply-search-slot-ux.log
+
+      - name: Upload patch diagnostics
+        if: always()
+        uses: actions/upload-artifact@v6
+        with:
+          name: search-slot-ux-patch-diagnostics
+          path: |
+            /tmp/apply-search-slot-ux.mjs
+            /tmp/apply-search-slot-ux.log
+          if-no-files-found: error
+          retention-days: 1
+
+      - name: Stop on patch failure
+        if: steps.patch.outcome != 'success'
+        shell: bash
+        run: exit 1
 
       - name: Commit generated changes
         shell: bash
