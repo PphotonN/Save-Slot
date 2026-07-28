@@ -86,7 +86,7 @@
     }
 
     let disposed = false;
-    let removeContextListener = () => undefined;
+    let removeContextListener: () => void = () => {};
     void (async () => {
       try {
         const { ThreeSlotSceneController } = await import('@save-slot/ps1-scene/three');
@@ -104,8 +104,9 @@
           if (!disposed) fallBack(instance, new Error('WebGL context lost.'));
         };
         canvas?.addEventListener('webglcontextlost', handleContextLost);
-        removeContextListener = () =>
+        removeContextListener = () => {
           canvas?.removeEventListener('webglcontextlost', handleContextLost);
+        };
         controller = instance;
       } catch (error) {
         if (disposed) return;

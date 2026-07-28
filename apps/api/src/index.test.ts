@@ -1,4 +1,5 @@
 import { beforeEach, describe, expect, it } from 'vitest';
+import { releaseSnapshotSchema, searchResultSchema } from '@save-slot/domain';
 import { fixtureSearchResults } from '@save-slot/domain/fixtures';
 import worker from './index';
 import { resetCatalogCacheForTests, type CacheExecutionContext } from './catalog-cache';
@@ -15,6 +16,13 @@ class TestContext implements CacheExecutionContext {
   }
 }
 
+function requireRecord(value: unknown, label: string): Record<string, unknown> {
+  if (!value || typeof value !== 'object' || Array.isArray(value)) {
+    throw new TypeError(`${label} must be a JSON object.`);
+  }
+  return value as Record<string, unknown>;
+}
+
 beforeEach(() => resetCatalogCacheForTests());
 
 describe('Save Slot API detail cache', () => {
@@ -29,7 +37,8 @@ describe('Save Slot API detail cache', () => {
       context,
     );
     expect(gameResponse.status).toBe(200);
-    expect((await gameResponse.json()).game.id).toBe(result.game.id);
+    const gameResult = searchResultSchema.parse(await gameResponse.json());
+    expect(gameResult.game.id).toBe(result.game.id);
 
     const releaseResponse = await worker.fetch(
       new Request(`http://localhost/v1/releases/${encodeURIComponent(release.id)}`),
@@ -37,7 +46,7 @@ describe('Save Slot API detail cache', () => {
       context,
     );
     expect(releaseResponse.status).toBe(200);
-    const snapshot = await releaseResponse.json();
+    const snapshot = releaseSnapshotSchema.parse(await releaseResponse.json());
     expect(snapshot.game.id).toBe(result.game.id);
     expect(snapshot.release.id).toBe(release.id);
 
@@ -47,9 +56,10 @@ describe('Save Slot API detail cache', () => {
       context,
     );
     expect(cacheResponse.status).toBe(200);
-    const cacheStatus = await cacheResponse.json();
-    expect(cacheStatus.stats.writes).toBeGreaterThan(0);
-    expect(cacheStatus.backends).toContain('memory');
+    const cacheStatus = requireRecord(await cacheResponse.json(), 'Cache status');
+    const stats = requireRecord(cacheStatus.stats, 'Cache statistics');
+    expect(Number(stats.writes)).toBeGreaterThan(0);
+    expect(cacheStatus.backends).toEqual(expect.arrayContaining(['memory']));
   });
 
   it('allows public read access from Capacitor and browser origins when configured with wildcard CORS', async () => {

@@ -1,7 +1,8 @@
 import { createServer } from 'node:http';
-import { copyFile, mkdir, readFile, rename, stat, writeFile } from 'node:fs/promises';
+import { copyFile, mkdir, readFile, rename, rm, stat, writeFile } from 'node:fs/promises';
 import { dirname, join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
+import { isAllowedLibraryOrigin, libraryCorsHeaders } from './library-cache-policy.mjs';
 
 const scriptDirectory = dirname(fileURLToPath(import.meta.url));
 const projectRoot = resolve(scriptDirectory, '..');
@@ -12,16 +13,20 @@ const temporaryPath = join(cacheDirectory, 'library.tmp.json');
 const host = process.env.SAVE_SLOT_LIBRARY_HOST || '127.0.0.1';
 const port = Number.parseInt(process.env.SAVE_SLOT_LIBRARY_PORT || '8791', 10);
 const maximumBodyBytes = 20 * 1024 * 1024;
+let writeQueue = Promise.resolve();
 
 function corsHeaders(request) {
+  return libraryCorsHeaders(request.headers.origin);
+}
+
+function assertAllowedBrowserOrigin(request) {
   const origin = request.headers.origin;
-  return {
-    'Access-Control-Allow-Origin': origin || '*',
-    'Access-Control-Allow-Methods': 'GET,PUT,OPTIONS',
-    'Access-Control-Allow-Headers': 'Content-Type',
-    'Access-Control-Max-Age': '86400',
-    Vary: 'Origin',
-  };
+  if (origin === undefined) return;
+  if (isAllowedLibraryOrigin(origin)) return;
+
+  const error = new Error('Browser origin is not allowed to access the local Save Slot library.');
+  error.statusCode = 403;
+  throw error;
 }
 
 function sendJson(response, request, status, value) {
@@ -29,6 +34,7 @@ function sendJson(response, request, status, value) {
     ...corsHeaders(request),
     'Content-Type': 'application/json; charset=utf-8',
     'Cache-Control': 'no-store',
+    'X-Content-Type-Options': 'nosniff',
   });
   response.end(`${JSON.stringify(value, null, 2)}\n`);
 }
@@ -70,15 +76,40 @@ async function libraryExists() {
   }
 }
 
+async function replaceLibraryFile() {
+  try {
+    await rename(temporaryPath, libraryPath);
+  } catch (error) {
+    if (!['EEXIST', 'EPERM'].includes(error?.code)) throw error;
+    await rm(libraryPath, { force: true });
+    await rename(temporaryPath, libraryPath);
+  }
+}
+
 async function writeLibrary(payload) {
   await mkdir(cacheDirectory, { recursive: true });
-  if (await libraryExists()) await copyFile(libraryPath, backupPath);
-  await writeFile(temporaryPath, `${JSON.stringify(payload, null, 2)}\n`, 'utf8');
-  await rename(temporaryPath, libraryPath);
+  await rm(temporaryPath, { force: true });
+
+  try {
+    if (await libraryExists()) await copyFile(libraryPath, backupPath);
+    await writeFile(temporaryPath, `${JSON.stringify(payload, null, 2)}\n`, 'utf8');
+    await replaceLibraryFile();
+  } finally {
+    await rm(temporaryPath, { force: true }).catch(() => undefined);
+  }
+}
+
+function enqueueLibraryWrite(payload) {
+  const operation = writeQueue
+    .catch(() => undefined)
+    .then(() => writeLibrary(payload));
+  writeQueue = operation;
+  return operation;
 }
 
 const server = createServer(async (request, response) => {
   try {
+    assertAllowedBrowserOrigin(request);
     const url = new URL(request.url || '/', `http://${request.headers.host || `${host}:${port}`}`);
 
     if (request.method === 'OPTIONS') {
@@ -112,7 +143,7 @@ const server = createServer(async (request, response) => {
     if (request.method === 'PUT' && url.pathname === '/library') {
       const body = await readBody(request);
       const payload = validateLibraryPayload(JSON.parse(body));
-      await writeLibrary(payload);
+      await enqueueLibraryWrite(payload);
       sendJson(response, request, 200, {
         saved: true,
         libraryPath,
@@ -126,7 +157,7 @@ const server = createServer(async (request, response) => {
   } catch (error) {
     const status = Number.isInteger(error?.statusCode) ? error.statusCode : 400;
     sendJson(response, request, status, {
-      error: 'library_cache_error',
+      error: status === 403 ? 'origin_not_allowed' : 'library_cache_error',
       message: error instanceof Error ? error.message : String(error),
     });
   }
@@ -148,6 +179,7 @@ server.listen(port, host, () => {
   console.log(`[READY] http://${host}:${port}`);
   console.log(`[FILE]  ${libraryPath}`);
   console.log('[INFO]  Collection changes are mirrored to this project folder.');
+  console.log('[SAFE]  Browser access is restricted to localhost origins.');
 });
 
 function shutdown() {

@@ -93,6 +93,9 @@ describe('automatic provider reconciliation', () => {
     const original = cloneFixture();
     original.game.id = 'game:original';
     original.providers = ['wikidata'];
+    original.game.sourceRefs = [
+      { provider: 'wikidata', id: 'QORIGINAL', url: 'https://www.wikidata.org/wiki/QORIGINAL' },
+    ];
     original.releases = original.releases.map((release) => ({
       ...release,
       gameId: original.game.id,
@@ -103,11 +106,19 @@ describe('automatic provider reconciliation', () => {
         id: 'platform:old-console',
         name: 'Old Console',
       },
+      sourceRefs: original.game.sourceRefs,
     }));
 
     const remake = cloneFixture();
     remake.game.id = 'game:remake';
     remake.providers = ['wikipedia'];
+    remake.game.sourceRefs = [
+      {
+        provider: 'wikipedia',
+        id: 'Original_Game_Remake',
+        url: 'https://en.wikipedia.org/wiki/Original_Game_Remake',
+      },
+    ];
     remake.releases = remake.releases.map((release) => ({
       ...release,
       gameId: remake.game.id,
@@ -118,6 +129,7 @@ describe('automatic provider reconciliation', () => {
         id: 'platform:new-console',
         name: 'New Console',
       },
+      sourceRefs: remake.game.sourceRefs,
     }));
 
     expect(assessIdentity(original, remake).reason).toBe('insufficient');
