@@ -8,6 +8,7 @@ import type {
   SearchResult,
   SourceRef,
 } from '@save-slot/domain';
+import { normalizePlatformIdentity } from '@save-slot/domain/platforms';
 
 const providerPriority: Record<ProviderId, number> = {
   igdb: 100,
@@ -65,9 +66,16 @@ function years(result: SearchResult): number[] {
   ).map(Number);
 }
 
+function platformIdentity(release: Release): string {
+  return normalizePlatformIdentity(release.platform.name).id;
+}
+
 function platformKeys(result: SearchResult): Set<string> {
   return new Set(
-    result.releases.flatMap((release) => [release.platform.id, normalized(release.platform.name)]),
+    result.releases.flatMap((release) => [
+      platformIdentity(release),
+      normalized(release.platform.name),
+    ]),
   );
 }
 
@@ -190,8 +198,7 @@ function uniqueRatings(values: Rating[]): Rating[] {
 
 function releaseIdentity(release: Release): string {
   return [
-    release.platform.id,
-    normalized(release.platform.name),
+    platformIdentity(release),
     normalized(release.region),
     release.year ?? release.releaseDate?.slice(0, 4) ?? '',
     normalized(release.edition ?? ''),
@@ -199,18 +206,25 @@ function releaseIdentity(release: Release): string {
 }
 
 function mergeRelease(primary: Release, secondary: Release, gameId: string): Release {
+  const releaseId = primary.id;
   return {
     ...secondary,
     ...primary,
+    id: releaseId,
     gameId,
     releaseDate: primary.releaseDate ?? secondary.releaseDate,
     year: primary.year ?? secondary.year,
     edition: primary.edition ?? secondary.edition,
     formats: uniqueStrings([...primary.formats, ...secondary.formats]) as Release['formats'],
-    media: uniqueMedia([...primary.media, ...secondary.media]).map((asset) => ({ ...asset, gameId })),
+    media: uniqueMedia([...primary.media, ...secondary.media]).map((asset) => ({
+      ...asset,
+      gameId,
+      ...(asset.releaseId ? { releaseId } : {}),
+    })),
     ratings: uniqueRatings([...primary.ratings, ...secondary.ratings]).map((rating) => ({
       ...rating,
       gameId,
+      ...(rating.releaseId ? { releaseId } : {}),
     })),
     sourceRefs: uniqueSources([...primary.sourceRefs, ...secondary.sourceRefs]),
   };
