@@ -42,7 +42,7 @@ describe('provider search behavior', () => {
     expect(sample).toBeDefined();
     const genre = sample!.game.genres[0]!;
     const year = sample!.releases.find((release) => release.year)?.year;
-    expect(year).toBeDefined();
+    if (year == null) throw new Error('Expected the fixture release to include a year.');
     const filtered = filterSearchResults(fixtureSearchResults, {
       query: '',
       genre,
