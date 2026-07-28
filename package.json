@@ -1,10 +1,15 @@
 {
   "name": "save-slot",
-  "version": "0.6.2",
+  "version": "0.6.3",
   "private": true,
   "type": "module",
+  "engines": {
+    "node": ">=24 <25"
+  },
   "scripts": {
+    "start": "node tools/local-server.mjs",
+    "start:local": "node tools/local-server.mjs",
     "test": "node --test tests/*.test.mjs",
-    "check": "node --check app-v3-core.js && node --check app-v3-wikidata.js && node --check app-v3-steam.js && node --check app-v3-results.js && node --check app-v3-manager.js && node --check app-v3-init.js && node --check app-v4.js && node --check app-v5.js && node --check app-v6.js && node --check app-v7.js && node --check app-v8.js && node --check app-v9.js && node --check app-v10.js && node --check app-v11.js && node --check app-v12.js && node --check core.js && node --check data/demo-games.js"
+    "check": "node --check app-v3-core.js && node --check app-v3-wikidata.js && node --check app-v3-steam.js && node --check app-v3-results.js && node --check app-v3-manager.js && node --check app-v3-init.js && node --check app-v4.js && node --check app-v5.js && node --check app-v6.js && node --check app-v7.js && node --check app-v8.js && node --check app-v9.js && node --check app-v10.js && node --check app-v11.js && node --check app-v12.js && node --check core.js && node --check data/demo-games.js && node --check tools/local-server.mjs"
   }
 }
