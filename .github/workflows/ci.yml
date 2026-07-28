@@ -26,8 +26,32 @@ jobs:
           node-version: 24.18.0
           package-manager-cache: false
 
-      - name: Install dependencies
-        run: pnpm install --no-frozen-lockfile
+      - name: Install frozen dependencies
+        run: pnpm install --frozen-lockfile
+
+      - name: Validate Bash launcher syntax
+        run: bash -n start-save-slot.sh
+
+      - name: Validate PowerShell launcher syntax
+        shell: pwsh
+        run: |
+          $hasErrors = $false
+          foreach ($path in @('scripts/bootstrap-windows.ps1', 'scripts/launch-windows.ps1')) {
+            $tokens = $null
+            $errors = $null
+            [System.Management.Automation.Language.Parser]::ParseFile(
+              (Resolve-Path $path),
+              [ref]$tokens,
+              [ref]$errors
+            ) | Out-Null
+            if ($errors.Count -gt 0) {
+              $hasErrors = $true
+              foreach ($parseError in $errors) {
+                Write-Error "$path`: $($parseError.Message) at $($parseError.Extent.StartLineNumber):$($parseError.Extent.StartColumnNumber)"
+              }
+            }
+          }
+          if ($hasErrors) { exit 1 }
 
       - name: Normalize source formatting in the verification workspace
         run: pnpm format
@@ -66,8 +90,8 @@ jobs:
           node-version: 24.18.0
           package-manager-cache: false
 
-      - name: Install dependencies
-        run: pnpm install --no-frozen-lockfile
+      - name: Install frozen dependencies
+        run: pnpm install --frozen-lockfile
 
       - name: Normalize source formatting in the verification workspace
         run: pnpm format
@@ -77,3 +101,40 @@ jobs:
 
       - name: Run Playwright acceptance tests
         run: pnpm test:e2e
+
+  windows-startup:
+    name: Windows portable first-launch smoke
+    runs-on: windows-latest
+    timeout-minutes: 20
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v6
+
+      - name: Bootstrap portable runtime and frozen dependencies
+        shell: powershell
+        run: |
+          $root = (Resolve-Path '.').Path
+          & powershell.exe -NoLogo -NoProfile -ExecutionPolicy Bypass -File "$root\scripts\bootstrap-windows.ps1" -ProjectRoot $root *> windows-bootstrap.log
+          $exitCode = $LASTEXITCODE
+          Get-Content windows-bootstrap.log
+          if ($exitCode -ne 0) { exit $exitCode }
+
+      - name: Start and verify Library, API and Web
+        shell: powershell
+        run: |
+          $root = (Resolve-Path '.').Path
+          $node = Join-Path $root '.runtime\node\node.exe'
+          $pnpm = Join-Path $root '.runtime\pnpm\pnpm.cmd'
+          & powershell.exe -NoLogo -NoProfile -ExecutionPolicy Bypass -File "$root\scripts\launch-windows.ps1" -ProjectRoot $root -NodeExecutable $node -PnpmCommand $pnpm -SmokeTest *> windows-launch.log
+          $exitCode = $LASTEXITCODE
+          Get-Content windows-launch.log
+          if ($exitCode -ne 0) { exit $exitCode }
+
+      - name: Upload Windows startup logs
+        if: always()
+        uses: actions/upload-artifact@v6
+        with:
+          name: save-slot-windows-startup-logs
+          path: windows-*.log
+          if-no-files-found: warn
+          retention-days: 1

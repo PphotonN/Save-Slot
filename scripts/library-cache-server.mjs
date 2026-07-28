@@ -10,8 +10,8 @@ const cacheDirectory = resolve(process.env.SAVE_SLOT_DATA_DIR || join(projectRoo
 const libraryPath = join(cacheDirectory, 'library.json');
 const backupPath = join(cacheDirectory, 'library.backup.json');
 const temporaryPath = join(cacheDirectory, 'library.tmp.json');
-const host = process.env.SAVE_SLOT_LIBRARY_HOST || '127.0.0.1';
-const port = Number.parseInt(process.env.SAVE_SLOT_LIBRARY_PORT || '8791', 10);
+const host = '127.0.0.1';
+const port = 8791;
 const maximumBodyBytes = 20 * 1024 * 1024;
 let writeQueue = Promise.resolve();
 
@@ -57,7 +57,9 @@ async function readBody(request) {
 }
 
 function validateLibraryPayload(value) {
-  if (!value || typeof value !== 'object') throw new Error('Library payload must be a JSON object.');
+  if (!value || typeof value !== 'object' || Array.isArray(value)) {
+    throw new Error('Library payload must be a JSON object.');
+  }
   if (value.format !== 'save-slot-collection') throw new Error('Unsupported library format.');
   if (value.version !== 1) throw new Error('Unsupported library version.');
   for (const key of ['lists', 'entries', 'snapshots']) {
@@ -66,14 +68,22 @@ function validateLibraryPayload(value) {
   return value;
 }
 
-async function libraryExists() {
+async function fileExists(path) {
   try {
-    await stat(libraryPath);
-    return true;
+    const details = await stat(path);
+    return details.isFile();
   } catch (error) {
     if (error?.code === 'ENOENT') return false;
     throw error;
   }
+}
+
+async function libraryExists() {
+  return fileExists(libraryPath);
+}
+
+async function readValidatedLibrary(path = libraryPath) {
+  return validateLibraryPayload(JSON.parse(await readFile(path, 'utf8')));
 }
 
 async function replaceLibraryFile() {
@@ -83,6 +93,35 @@ async function replaceLibraryFile() {
     if (!['EEXIST', 'EPERM'].includes(error?.code)) throw error;
     await rm(libraryPath, { force: true });
     await rename(temporaryPath, libraryPath);
+  }
+}
+
+async function ensureLibraryIntegrity() {
+  await mkdir(cacheDirectory, { recursive: true });
+  await rm(temporaryPath, { force: true });
+  if (!(await libraryExists())) return;
+
+  try {
+    await readValidatedLibrary();
+    return;
+  } catch (libraryError) {
+    if (!(await fileExists(backupPath))) {
+      throw new Error(`library.json is invalid and no backup is available: ${libraryError.message}`);
+    }
+
+    try {
+      const backup = await readFile(backupPath, 'utf8');
+      validateLibraryPayload(JSON.parse(backup));
+      await writeFile(temporaryPath, backup, 'utf8');
+      await replaceLibraryFile();
+      console.warn('[RECOVERED] Invalid library.json was restored from library.backup.json.');
+    } catch (backupError) {
+      throw new Error(
+        `library.json and library.backup.json are both invalid: ${libraryError.message}; ${backupError.message}`,
+      );
+    } finally {
+      await rm(temporaryPath, { force: true }).catch(() => undefined);
+    }
   }
 }
 
@@ -119,13 +158,15 @@ const server = createServer(async (request, response) => {
     }
 
     if (request.method === 'GET' && url.pathname === '/health') {
+      const exists = await libraryExists();
+      if (exists) await readValidatedLibrary();
       sendJson(response, request, 200, {
         service: 'save-slot-library-cache',
         status: 'ok',
         projectRoot,
         cacheDirectory,
         libraryPath,
-        exists: await libraryExists(),
+        exists,
       });
       return;
     }
@@ -135,8 +176,7 @@ const server = createServer(async (request, response) => {
         sendJson(response, request, 404, { error: 'library_not_found', libraryPath });
         return;
       }
-      const payload = validateLibraryPayload(JSON.parse(await readFile(libraryPath, 'utf8')));
-      sendJson(response, request, 200, payload);
+      sendJson(response, request, 200, await readValidatedLibrary());
       return;
     }
 
@@ -172,15 +212,21 @@ server.on('error', (error) => {
   process.exitCode = 1;
 });
 
-server.listen(port, host, () => {
-  console.log('========================================');
-  console.log('  SAVE SLOT PROJECT LIBRARY CACHE');
-  console.log('========================================');
-  console.log(`[READY] http://${host}:${port}`);
-  console.log(`[FILE]  ${libraryPath}`);
-  console.log('[INFO]  Collection changes are mirrored to this project folder.');
-  console.log('[SAFE]  Browser access is restricted to localhost origins.');
-});
+try {
+  await ensureLibraryIntegrity();
+  server.listen(port, host, () => {
+    console.log('========================================');
+    console.log('  SAVE SLOT PROJECT LIBRARY CACHE');
+    console.log('========================================');
+    console.log(`[READY] http://${host}:${port}`);
+    console.log(`[FILE]  ${libraryPath}`);
+    console.log('[INFO]  Collection changes are mirrored to this project folder.');
+    console.log('[SAFE]  Browser access is restricted to localhost origins.');
+  });
+} catch (error) {
+  console.error(`[ERROR] ${error instanceof Error ? error.message : String(error)}`);
+  process.exitCode = 1;
+}
 
 function shutdown() {
   server.close(() => process.exit(0));
