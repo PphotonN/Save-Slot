@@ -114,8 +114,10 @@ jobs:
         shell: powershell
         run: |
           $root = (Resolve-Path '.').Path
-          & powershell.exe -NoLogo -NoProfile -ExecutionPolicy Bypass -File "$root\scripts\bootstrap-windows.ps1" -ProjectRoot $root
-          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          & powershell.exe -NoLogo -NoProfile -ExecutionPolicy Bypass -File "$root\scripts\bootstrap-windows.ps1" -ProjectRoot $root *> windows-bootstrap.log
+          $exitCode = $LASTEXITCODE
+          Get-Content windows-bootstrap.log
+          if ($exitCode -ne 0) { exit $exitCode }
 
       - name: Start and verify Library, API and Web
         shell: powershell
@@ -123,5 +125,16 @@ jobs:
           $root = (Resolve-Path '.').Path
           $node = Join-Path $root '.runtime\node\node.exe'
           $pnpm = Join-Path $root '.runtime\pnpm\pnpm.cmd'
-          & powershell.exe -NoLogo -NoProfile -ExecutionPolicy Bypass -File "$root\scripts\launch-windows.ps1" -ProjectRoot $root -NodeExecutable $node -PnpmCommand $pnpm -SmokeTest
-          exit $LASTEXITCODE
+          & powershell.exe -NoLogo -NoProfile -ExecutionPolicy Bypass -File "$root\scripts\launch-windows.ps1" -ProjectRoot $root -NodeExecutable $node -PnpmCommand $pnpm -SmokeTest *> windows-launch.log
+          $exitCode = $LASTEXITCODE
+          Get-Content windows-launch.log
+          if ($exitCode -ne 0) { exit $exitCode }
+
+      - name: Upload Windows startup logs
+        if: always()
+        uses: actions/upload-artifact@v6
+        with:
+          name: save-slot-windows-startup-logs
+          path: windows-*.log
+          if-no-files-found: warn
+          retention-days: 1
