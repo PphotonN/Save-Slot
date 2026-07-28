@@ -9,13 +9,16 @@ $ProgressPreference = 'SilentlyContinue'
 
 $NodeVersion = '24.18.0'
 $PnpmVersion = '10.14.0'
+$WranglerVersion = '4.114.0'
 $RuntimeRoot = Join-Path $ProjectRoot '.runtime'
 $NodeRoot = Join-Path $RuntimeRoot 'node'
 $PnpmRoot = Join-Path $RuntimeRoot 'pnpm'
 $NodeExe = Join-Path $NodeRoot 'node.exe'
 $NpmCmd = Join-Path $NodeRoot 'npm.cmd'
 $PnpmCmd = Join-Path $PnpmRoot 'pnpm.cmd'
+$WranglerCmd = Join-Path $ProjectRoot 'node_modules\.bin\wrangler.cmd'
 $script:NodeRuntimeChanged = $false
+$script:DependencyRefreshRequired = $false
 
 function Write-Step([string]$Message) {
   Write-Host ('[SETUP] ' + $Message) -ForegroundColor Cyan
@@ -103,6 +106,7 @@ function Install-PortableNode {
   Remove-Item -Force -ErrorAction SilentlyContinue $archivePath
   Add-LocalRuntimeToPath
   $script:NodeRuntimeChanged = $true
+  $script:DependencyRefreshRequired = $true
 
   if (-not (Test-ExactVersion $NodeExe $NodeVersion)) {
     throw 'Portable Node.js validation failed after extraction.'
@@ -138,6 +142,50 @@ function Install-LocalPnpm {
   }
 }
 
+function Migrate-WorkerEnvironment([string]$ApiEnvironment) {
+  if (-not (Test-Path -LiteralPath $ApiEnvironment)) {
+    return
+  }
+
+  $lines = Get-Content -LiteralPath $ApiEnvironment
+  $preserved = New-Object System.Collections.Generic.List[string]
+  $allowedOriginWritten = $false
+  $optionalKeys = @(
+    'IGDB_CLIENT_ID',
+    'IGDB_CLIENT_SECRET',
+    'MOBYGAMES_API_KEY',
+    'RAWG_API_KEY',
+    'TRANSLATION_API_KEY'
+  )
+
+  foreach ($line in $lines) {
+    if ($line -match '^\s*ALLOWED_ORIGIN\s*=') {
+      if (-not $allowedOriginWritten) {
+        $preserved.Add('ALLOWED_ORIGIN=*')
+        $allowedOriginWritten = $true
+      }
+      continue
+    }
+
+    $removedEmptyOptional = $false
+    foreach ($key in $optionalKeys) {
+      if ($line -match ('^\s*' + [regex]::Escape($key) + '\s*=\s*$')) {
+        $removedEmptyOptional = $true
+        break
+      }
+    }
+    if (-not $removedEmptyOptional) {
+      $preserved.Add($line)
+    }
+  }
+
+  if (-not $allowedOriginWritten) {
+    $preserved.Insert(0, 'ALLOWED_ORIGIN=*')
+  }
+
+  Set-Content -LiteralPath $ApiEnvironment -Value $preserved -Encoding ASCII
+}
+
 function Ensure-LocalConfiguration {
   $webExample = Join-Path $ProjectRoot 'apps\web\.env.example'
   $webEnvironment = Join-Path $ProjectRoot 'apps\web\.env'
@@ -159,6 +207,17 @@ function Ensure-LocalConfiguration {
   if (-not (Test-Path -LiteralPath $apiEnvironment)) {
     Write-Step 'Creating apps\api\.dev.vars...'
     Copy-Item -LiteralPath $apiExample -Destination $apiEnvironment
+  } else {
+    Write-Step 'Migrating local Worker configuration...'
+    Migrate-WorkerEnvironment $apiEnvironment
+  }
+}
+
+function Check-WorkspaceToolVersions {
+  Add-LocalRuntimeToPath
+  if (-not (Test-ExactVersion $WranglerCmd $WranglerVersion)) {
+    $script:DependencyRefreshRequired = $true
+    Write-Step ('Wrangler must be updated to ' + $WranglerVersion + '.')
   }
 }
 
@@ -167,9 +226,9 @@ function Install-ProjectDependencies {
   Add-LocalRuntimeToPath
 
   $installArguments = @('install', '--prefer-offline', '--frozen-lockfile=false')
-  if ($script:NodeRuntimeChanged) {
+  if ($script:DependencyRefreshRequired -or $script:NodeRuntimeChanged) {
     $installArguments += '--force'
-    Write-Step 'Node.js changed; rebuilding project dependencies for the new runtime...'
+    Write-Step 'Refreshing workspace dependencies for the required tool versions...'
   }
 
   Push-Location $ProjectRoot
@@ -180,6 +239,10 @@ function Install-ProjectDependencies {
     }
   } finally {
     Pop-Location
+  }
+
+  if (-not (Test-ExactVersion $WranglerCmd $WranglerVersion)) {
+    throw ('Wrangler validation failed. Expected version: ' + $WranglerVersion)
   }
 }
 
@@ -200,6 +263,7 @@ try {
 
   Install-LocalPnpm
   Ensure-LocalConfiguration
+  Check-WorkspaceToolVersions
   Install-ProjectDependencies
 
   Write-Host '[READY] Save Slot local environment is ready.' -ForegroundColor Green
