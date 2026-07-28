@@ -15,7 +15,7 @@
     "@save-slot/providers": "workspace:*"
   },
   "devDependencies": {
-    "@cloudflare/workers-types": "^4.20230307.0",
+    "@cloudflare/workers-types": "^5.20260722.1",
     "typescript": "catalog:",
     "vitest": "catalog:",
     "wrangler": "4.114.0"
