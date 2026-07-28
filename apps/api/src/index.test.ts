@@ -1,9 +1,6 @@
 import { beforeEach, describe, expect, it } from 'vitest';
-import {
-  fixtureSearchResults,
-  releaseSnapshotSchema,
-  searchResultSchema,
-} from '@save-slot/domain';
+import { releaseSnapshotSchema, searchResultSchema } from '@save-slot/domain';
+import { fixtureSearchResults } from '@save-slot/domain/fixtures';
 import worker from './index';
 import { resetCatalogCacheForTests, type CacheExecutionContext } from './catalog-cache';
 
