@@ -6,7 +6,9 @@ param(
   [string]$NodeExecutable,
 
   [Parameter(Mandatory = $true)]
-  [string]$PnpmCommand
+  [string]$PnpmCommand,
+
+  [switch]$SmokeTest
 )
 
 $ErrorActionPreference = 'Stop'
@@ -61,7 +63,17 @@ function Start-ServiceTerminal([pscustomobject]$Service) {
     $Service.Command
   ) -join ' '
 
-  $process = Start-Process -FilePath $env:ComSpec -ArgumentList $commandLine -WorkingDirectory $ProjectRoot -PassThru
+  $startArguments = @{
+    FilePath = $env:ComSpec
+    ArgumentList = $commandLine
+    WorkingDirectory = $ProjectRoot
+    PassThru = $true
+  }
+  if ($SmokeTest) {
+    $startArguments.WindowStyle = 'Hidden'
+  }
+
+  $process = Start-Process @startArguments
   $startedProcesses.Add($process)
   return $process
 }
@@ -94,7 +106,7 @@ function Ensure-Service([pscustomobject]$Service) {
     return
   }
 
-  if ($Service.Optional) {
+  if ($Service.Optional -and -not $SmokeTest) {
     Write-Host ('[WARN] ' + $Service.DisplayName + ' did not become ready. The web app will use its offline fallback.') -ForegroundColor Yellow
     return
   }
@@ -155,6 +167,13 @@ $services = @(
 try {
   foreach ($service in $services) {
     Ensure-Service $service
+  }
+
+  if ($SmokeTest) {
+    Stop-StartedServices
+    Write-Host ''
+    Write-Host '[READY] Windows first-launch smoke test passed.' -ForegroundColor Green
+    exit 0
   }
 
   Start-Process -FilePath 'http://127.0.0.1:5173'
