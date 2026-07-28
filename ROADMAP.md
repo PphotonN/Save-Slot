@@ -10,6 +10,7 @@ This roadmap describes implementation order rather than fixed release dates. A c
 - [x] Define product boundaries, architecture, source strategy and data model.
 - [x] Define desktop/mobile UX, security and privacy requirements.
 - [x] Keep v1 work outside the legacy `app-v*.js` patch chain.
+- [x] Make zero-configuration, no-key operation a product requirement.
 - [ ] Preserve the final legacy prototype with a dedicated tag.
 
 ## Phase 1 — Workspace foundation
@@ -42,16 +43,22 @@ This roadmap describes implementation order rather than fixed release dates. A c
 
 ## Phase 3 — Aggregation Worker
 
-**Status:** normalized provider pipeline and cache implemented
+**Status:** automatic no-key provider pipeline and cache implemented
 
 - [x] Normalized search, discovery, suggestion, detail and diagnostics routes.
-- [x] Wikidata Action API adapter without SPARQL.
+- [x] Wikidata Action API adapter without SPARQL or credentials.
+- [x] Conservative cross-provider identity assessment.
+- [x] Automatic reconciliation by shared IDs, title, year, normalized platform and developer evidence.
+- [x] Canonical release rebinding for merged media and ratings.
+- [x] Exact Wikipedia sitelink and `wikibase_item` description verification.
 - [x] Request timeout, abort and partial-provider handling.
 - [x] Memory, Cache API and optional KV-compatible catalogue cache.
 - [x] Stable cached game/release detail keys.
 - [x] Representative offline fixture fallback.
-- [ ] Add IGDB after credential and terms review.
-- [ ] Add MobyGames or RAWG only after licensing and attribution review.
+- [ ] Add automatic PCGamingWiki enrichment with rate limiting and cache.
+- [ ] Add automatic VNDB enrichment for visual novels.
+- [ ] Add optional SteamSpy popularity signals with explicit approximation labels.
+- [ ] Keep IGDB, MobyGames and RAWG as optional expert providers only.
 
 ## Phase 4 — Search and discovery
 
@@ -65,19 +72,22 @@ This roadmap describes implementation order rather than fixed release dates. A c
 - [x] Progressive left-to-right reveal.
 - [x] Loading, empty, fallback and continuation states.
 - [x] Sorting changes order without controlling visibility.
+- [x] Manual metadata entry is not required for normal search results.
 
 ## Phase 5 — Release-specific media and details
 
-**Status:** implemented with currently available providers
+**Status:** implemented with currently available no-key providers
 
 - [x] Concrete platform-release selection.
 - [x] Verified release cover contracts.
 - [x] Steam cover, description, screenshots and review enrichment.
 - [x] Robust Libretro `Named_Boxarts` matching.
 - [x] Libretro `Named_Snaps` and `Named_Titles` media.
+- [x] Exact localized Wikipedia introduction enrichment through Wikidata identity.
 - [x] Source-labelled media lightbox and rating panels.
 - [x] Cached detail refresh for collection entries.
-- [x] Personal custom-cover override.
+- [x] Personal custom-cover override as an optional final fallback.
+- [ ] Add automatic metadata-completeness diagnostics per release.
 - [ ] Add more non-Libretro console screenshot sources where terms permit.
 
 ## Phase 6 — Collection experience
@@ -93,6 +103,7 @@ This roadmap describes implementation order rather than fixed release dates. A c
 - [x] Editor for ownership, format, progress, rating, priority, quantity, dates, price, tags and notes.
 - [x] Box/media condition and completeness.
 - [x] Custom cover validation, preview and reset.
+- [x] Provider metadata is added automatically before personal fields are requested.
 
 ## Phase 7 — PS1 slot scene
 
@@ -126,7 +137,7 @@ This roadmap describes implementation order rather than fixed release dates. A c
 - [x] Original/localized description toggle where both texts exist.
 - [x] Localized collection-import guard for invalid type and excessive file size.
 - [ ] Move the remaining specialized component copy into the central catalogue.
-- [ ] Implement an external translation adapter and local translation cache.
+- [ ] Implement an optional external translation adapter and local translation cache.
 - [ ] Add privacy disclosure before sending text to an external translator.
 - [ ] Invalidate translated text by source-text hash.
 
@@ -164,11 +175,11 @@ This roadmap describes implementation order rather than fixed release dates. A c
 ## Next implementation milestone
 
 1. Confirm and repair the first complete GitHub Actions run.
-2. Generate the Capacitor Android project on a workstation with Android Studio.
-3. Run the PWA and native wrapper on a physical Android phone.
-4. Profile Three.js memory, GPU use and context recovery.
-5. Finish central localization of remaining component-specific text.
-6. Design the optional translation service and privacy boundary.
+2. Add PCGamingWiki as the next automatic no-key provider.
+3. Add VNDB automatic identity/rating/play-length enrichment for visual novels.
+4. Add per-release completeness/conflict diagnostics without interrupting normal use.
+5. Generate the Capacitor Android project and test on a physical phone.
+6. Profile Three.js memory, GPU use and context recovery.
 
 ## Deferred ideas
 
