@@ -1,0 +1,40 @@
+name: Generate Save Slot Lockfile
+
+on:
+  push:
+    paths:
+      - .github/workflows/generate-lockfile.yml
+      - package.json
+      - pnpm-workspace.yaml
+      - apps/*/package.json
+      - packages/*/package.json
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  lockfile:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v6
+      - name: Install pnpm
+        uses: pnpm/action-setup@v6
+        with:
+          version: 10.14.0
+      - name: Set up Node.js
+        uses: actions/setup-node@v6
+        with:
+          node-version: 24.18.0
+          package-manager-cache: false
+      - name: Generate lockfile
+        run: pnpm install --lockfile-only --no-frozen-lockfile
+      - name: Upload lockfile
+        uses: actions/upload-artifact@v6
+        with:
+          name: save-slot-pnpm-lock
+          path: pnpm-lock.yaml
+          if-no-files-found: error
+          retention-days: 1
