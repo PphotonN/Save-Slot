@@ -11,12 +11,16 @@ describe('automatic provider reconciliation', () => {
     const local = cloneFixture();
     local.game.id = 'game:local-copy';
     local.providers = ['manual'];
-    local.game.sourceRefs = [{ provider: 'steam', id: '4242', url: 'https://store.steampowered.com/app/4242/' }];
+    local.game.sourceRefs = [
+      { provider: 'steam', id: '4242', url: 'https://store.steampowered.com/app/4242/' },
+    ];
     local.releases = local.releases.map((release) => ({
       ...release,
       id: `${release.id}:local`,
       gameId: local.game.id,
-      sourceRefs: [{ provider: 'steam', id: '4242', url: 'https://store.steampowered.com/app/4242/' }],
+      sourceRefs: [
+        { provider: 'steam', id: '4242', url: 'https://store.steampowered.com/app/4242/' },
+      ],
     }));
 
     const wikidata = cloneFixture();
@@ -53,7 +57,9 @@ describe('automatic provider reconciliation', () => {
     const first = cloneFixture();
     first.game.id = 'game:source-a';
     first.providers = ['wikidata'];
-    first.game.sourceRefs = [{ provider: 'wikidata', id: 'QA', url: 'https://www.wikidata.org/wiki/QA' }];
+    first.game.sourceRefs = [
+      { provider: 'wikidata', id: 'QA', url: 'https://www.wikidata.org/wiki/QA' },
+    ];
     first.releases = first.releases.map((release) => ({
       ...release,
       id: `${release.id}:a`,
@@ -64,7 +70,13 @@ describe('automatic provider reconciliation', () => {
     const second = cloneFixture();
     second.game.id = 'game:source-b';
     second.providers = ['wikipedia'];
-    second.game.sourceRefs = [{ provider: 'wikipedia', id: 'Example_Game', url: 'https://en.wikipedia.org/wiki/Example_Game' }];
+    second.game.sourceRefs = [
+      {
+        provider: 'wikipedia',
+        id: 'Example_Game',
+        url: 'https://en.wikipedia.org/wiki/Example_Game',
+      },
+    ];
     second.releases = second.releases.map((release) => ({
       ...release,
       id: `${release.id}:b`,
@@ -110,5 +122,42 @@ describe('automatic provider reconciliation', () => {
 
     expect(assessIdentity(original, remake).reason).toBe('insufficient');
     expect(reconcileSearchResults([original, remake])).toHaveLength(2);
+  });
+
+  it('does not merge exact title and platform when year and developer are both unknown', () => {
+    const first = cloneFixture();
+    first.game.id = 'game:unknown-a';
+    first.game.developers = [];
+    first.game.sourceRefs = [
+      { provider: 'wikidata', id: 'QUNKNOWN-A', url: 'https://www.wikidata.org/wiki/QUNKNOWN-A' },
+    ];
+    first.releases = first.releases.map((release) => ({
+      ...release,
+      gameId: first.game.id,
+      year: undefined,
+      releaseDate: undefined,
+      sourceRefs: first.game.sourceRefs,
+    }));
+
+    const second = cloneFixture();
+    second.game.id = 'game:unknown-b';
+    second.game.developers = [];
+    second.game.sourceRefs = [
+      {
+        provider: 'wikipedia',
+        id: 'Unknown_Game',
+        url: 'https://en.wikipedia.org/wiki/Unknown_Game',
+      },
+    ];
+    second.releases = second.releases.map((release) => ({
+      ...release,
+      gameId: second.game.id,
+      year: undefined,
+      releaseDate: undefined,
+      sourceRefs: second.game.sourceRefs,
+    }));
+
+    expect(assessIdentity(first, second).reason).toBe('insufficient');
+    expect(reconcileSearchResults([first, second])).toHaveLength(2);
   });
 });
