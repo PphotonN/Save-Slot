@@ -208,6 +208,7 @@ export class WikidataProvider implements ProviderAdapter {
     const started = performance.now();
     const articles = await this.articlesFor(qids, locale, signal);
     const extracts = await this.extractsFor(articles, signal);
+    const retrievedAt = new Date().toISOString();
     let enrichedCount = 0;
 
     const items = page.items.map((result) => {
@@ -225,20 +226,21 @@ export class WikidataProvider implements ProviderAdapter {
         provider: 'wikipedia',
         id: `${match.article.language}:${match.article.title}`,
         url,
-        retrievedAt: new Date().toISOString(),
+        retrievedAt,
+      };
+      const wikipediaDescription: LocalizedText = {
+        locale: match.article.language,
+        text,
+        source,
+        official: false,
       };
       return {
         ...result,
         game: {
           ...result.game,
           descriptions: uniqueDescriptions([
+            wikipediaDescription,
             ...result.game.descriptions,
-            {
-              locale: match.article.language,
-              text,
-              source,
-              official: false,
-            },
           ]),
           sourceRefs: uniqueSources([...result.game.sourceRefs, source]),
         },
