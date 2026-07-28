@@ -1,4 +1,4 @@
-name: Save Slot Typecheck Diagnostic
+name: Save Slot Verification Diagnostic
 
 on:
   push:
@@ -10,7 +10,7 @@ permissions:
 jobs:
   diagnostic:
     runs-on: ubuntu-latest
-    timeout-minutes: 15
+    timeout-minutes: 20
     steps:
       - name: Checkout
         uses: actions/checkout@v6
@@ -38,14 +38,27 @@ jobs:
           echo "status=$status" >> "$GITHUB_OUTPUT"
           exit 0
 
-      - name: Upload typecheck output
+      - name: Capture test output
+        id: tests
+        shell: bash
+        run: |
+          set +e
+          pnpm test > test.log 2>&1
+          status=$?
+          cat test.log
+          echo "status=$status" >> "$GITHUB_OUTPUT"
+          exit 0
+
+      - name: Upload diagnostic output
         uses: actions/upload-artifact@v6
         with:
-          name: save-slot-typecheck-log
-          path: typecheck.log
+          name: save-slot-verification-logs
+          path: |
+            typecheck.log
+            test.log
           if-no-files-found: error
           retention-days: 1
 
-      - name: Fail when typecheck failed
-        if: steps.typecheck.outputs.status != '0'
+      - name: Fail when verification failed
+        if: steps.typecheck.outputs.status != '0' || steps.tests.outputs.status != '0'
         run: exit 1
