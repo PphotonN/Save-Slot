@@ -1,6 +1,6 @@
 {
   "name": "save-slot",
-  "version": "0.7.0-android-preview",
+  "version": "0.7.1-android-preview",
   "private": true,
   "type": "module",
   "scripts": {
