@@ -1,5 +1,6 @@
 package com.pphotonn.saveslot.ui
 
+import android.content.Context
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.background
@@ -18,7 +19,6 @@ import androidx.compose.foundation.layout.navigationBarsPadding
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.statusBarsPadding
-import androidx.compose.foundation.layout.weight
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.LazyRow
@@ -28,14 +28,12 @@ import androidx.compose.foundation.text.KeyboardActions
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
-import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.Checkbox
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.DropdownMenu
 import androidx.compose.material3.DropdownMenuItem
-import androidx.compose.material3.FilledTonalButton
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.NavigationBar
@@ -81,13 +79,11 @@ import com.pphotonn.saveslot.ui.theme.SaveGreen
 import com.pphotonn.saveslot.ui.theme.SaveMuted
 import com.pphotonn.saveslot.ui.theme.SaveSurface
 import com.pphotonn.saveslot.ui.theme.SaveSurfaceHigh
-import java.text.DecimalFormat
 
 @Composable
 fun SaveSlotApp(viewModel: MainViewModel) {
     val state by viewModel.state.collectAsStateWithLifecycle()
     val snackbar = remember { SnackbarHostState() }
-
     LaunchedEffect(state.notice) {
         state.notice?.let {
             snackbar.showSnackbar(it)
@@ -96,25 +92,10 @@ fun SaveSlotApp(viewModel: MainViewModel) {
     }
 
     Scaffold(
-        modifier = Modifier.fillMaxSize(),
         containerColor = MaterialTheme.colorScheme.background,
         snackbarHost = { SnackbarHost(snackbar) },
-        topBar = { AppHeader(state) },
-        bottomBar = {
-            NavigationBar(
-                modifier = Modifier.navigationBarsPadding(),
-                containerColor = SaveSurface,
-            ) {
-                AppScreen.entries.forEach { screen ->
-                    NavigationBarItem(
-                        selected = state.screen == screen,
-                        onClick = { viewModel.setScreen(screen) },
-                        icon = { Text(screen.symbol, fontFamily = FontFamily.Monospace) },
-                        label = { Text(screen.label, fontSize = 11.sp) },
-                    )
-                }
-            }
-        },
+        topBar = { Header(state) },
+        bottomBar = { BottomNavigation(state.screen, viewModel::setScreen) },
     ) { padding ->
         when (state.screen) {
             AppScreen.HOME -> HomeScreen(state, viewModel, padding)
@@ -126,54 +107,45 @@ fun SaveSlotApp(viewModel: MainViewModel) {
 }
 
 @Composable
-private fun AppHeader(state: AppUiState) {
+private fun Header(state: AppUiState) {
     Row(
-        modifier = Modifier
-            .fillMaxWidth()
-            .background(SaveSurface)
-            .statusBarsPadding()
-            .padding(horizontal = 18.dp, vertical = 12.dp),
+        Modifier.fillMaxWidth().background(SaveSurface).statusBarsPadding().padding(16.dp),
         verticalAlignment = Alignment.CenterVertically,
     ) {
-        Text(
-            "SAVE SLOT",
-            color = SaveGreen,
-            fontWeight = FontWeight.Black,
-            fontFamily = FontFamily.Monospace,
-            letterSpacing = 1.5.sp,
-        )
+        Text("SAVE SLOT", color = SaveGreen, fontWeight = FontWeight.Black, fontFamily = FontFamily.Monospace)
         Spacer(Modifier.weight(1f))
-        val ready = state.sourceHealth.any { it.state == HealthState.READY }
-        val error = state.sourceHealth.any { it.state == HealthState.ERROR }
-        Box(
-            Modifier
-                .size(9.dp)
-                .clip(RoundedCornerShape(50))
-                .background(if (error && !ready) SaveDanger else if (ready) SaveGreen else SaveMuted)
-        )
+        val health = when {
+            state.loading -> SaveAmber
+            state.sourceHealth.any { it.state == HealthState.READY } -> SaveGreen
+            state.sourceHealth.any { it.state == HealthState.ERROR } -> SaveDanger
+            else -> SaveMuted
+        }
+        Box(Modifier.size(9.dp).clip(RoundedCornerShape(50)).background(health))
         Spacer(Modifier.width(7.dp))
-        Text(
-            when {
-                state.loading -> "ОНОВЛЕННЯ"
-                ready -> "ДЖЕРЕЛА ГОТОВІ"
-                error -> "ПОМИЛКА ДЖЕРЕЛ"
-                else -> "ОЧІКУВАННЯ"
-            },
-            color = SaveMuted,
-            fontSize = 10.sp,
-            fontFamily = FontFamily.Monospace,
-        )
+        Text(if (state.loading) "ОНОВЛЕННЯ" else "ОНЛАЙН", color = SaveMuted, fontSize = 10.sp)
     }
 }
 
 @Composable
-private fun HomeScreen(state: AppUiState, viewModel: MainViewModel, padding: PaddingValues) {
+private fun BottomNavigation(selected: AppScreen, onSelect: (AppScreen) -> Unit) {
+    NavigationBar(Modifier.navigationBarsPadding(), containerColor = SaveSurface) {
+        AppScreen.entries.forEach { screen ->
+            NavigationBarItem(
+                selected = selected == screen,
+                onClick = { onSelect(screen) },
+                icon = { Text(screen.icon, fontFamily = FontFamily.Monospace) },
+                label = { Text(screen.title, fontSize = 11.sp) },
+            )
+        }
+    }
+}
+
+@Composable
+private fun HomeScreen(state: AppUiState, vm: MainViewModel, padding: PaddingValues) {
     LazyColumn(
-        modifier = Modifier
-            .fillMaxSize()
-            .padding(padding),
+        Modifier.fillMaxSize().padding(padding),
         contentPadding = PaddingValues(16.dp),
-        verticalArrangement = Arrangement.spacedBy(16.dp),
+        verticalArrangement = Arrangement.spacedBy(14.dp),
     ) {
         item {
             SlotScene(
@@ -183,544 +155,301 @@ private fun HomeScreen(state: AppUiState, viewModel: MainViewModel, padding: Pad
                 modifier = Modifier.fillMaxWidth(),
             )
         }
-
         item {
-            val selected = state.selectedGame
-            Card(
-                colors = CardDefaults.cardColors(containerColor = SaveSurface),
-                shape = RoundedCornerShape(22.dp),
-            ) {
-                Column(Modifier.padding(18.dp), verticalArrangement = Arrangement.spacedBy(9.dp)) {
-                    Eyebrow(if (selected == null) "СЛОТ ПОРОЖНІЙ" else "ОБРАНА ГРА")
-                    Text(
-                        selected?.title ?: "Знайди гру для наступного проходження",
-                        style = MaterialTheme.typography.headlineSmall,
-                        fontWeight = FontWeight.Bold,
-                    )
-                    if (selected != null) {
-                        Text(gameMeta(selected), color = SaveMuted)
-                        if (selected.description.isNotBlank()) {
-                            Text(
-                                selected.description,
-                                color = MaterialTheme.colorScheme.onSurfaceVariant,
-                                maxLines = 3,
-                                overflow = TextOverflow.Ellipsis,
-                            )
-                        }
-                    } else {
-                        Text(
-                            "Каталог формується з онлайн-джерел. Фільтри впливають лише на вибір, а не на оформлення.",
-                            color = SaveMuted,
-                        )
-                    }
-                    Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
-                        Button(
-                            onClick = viewModel::selectRandom,
-                            enabled = !state.loading && state.visibleResults.isNotEmpty(),
-                            modifier = Modifier.weight(1f),
-                        ) { Text("ВСТАВИТИ ВИПАДКОВУ") }
-                        OutlinedButton(
-                            onClick = viewModel::randomFive,
-                            enabled = state.visibleResults.isNotEmpty(),
-                        ) { Text("×5") }
-                    }
-                    if (selected != null) {
-                        FilledTonalButton(
-                            onClick = viewModel::addSelectedToLibrary,
-                            modifier = Modifier.fillMaxWidth(),
-                        ) { Text("ДОДАТИ ДО СПИСКУ") }
+            Panel {
+                Label(if (state.selectedGame == null) "СЛОТ ПОРОЖНІЙ" else "ОБРАНА ГРА")
+                Text(
+                    state.selectedGame?.title ?: "Обери наступну гру",
+                    style = MaterialTheme.typography.headlineSmall,
+                    fontWeight = FontWeight.Bold,
+                )
+                state.selectedGame?.let { game ->
+                    Text(meta(game), color = SaveMuted)
+                    if (game.description.isNotBlank()) Text(game.description, maxLines = 3, overflow = TextOverflow.Ellipsis)
+                }
+                Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+                    Button(
+                        onClick = vm::selectRandom,
+                        enabled = !state.loading && state.visibleResults.isNotEmpty(),
+                        modifier = Modifier.weight(1f),
+                    ) { Text("ВИПАДКОВА ГРА") }
+                    OutlinedButton(onClick = vm::randomFive, enabled = state.visibleResults.isNotEmpty()) { Text("×5") }
+                }
+                if (state.selectedGame != null) {
+                    OutlinedButton(onClick = vm::addSelectedToLibrary, modifier = Modifier.fillMaxWidth()) {
+                        Text("ДОДАТИ ДО СПИСКУ")
                     }
                 }
             }
         }
-
         if (state.featuredFive.isNotEmpty()) {
-            item { SectionTitle("Випадкова п’ятірка", "Одна добірка без повторів") }
+            item { Title("Випадкова п’ятірка", "П’ять різних ігор") }
             item {
-                LazyRow(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
-                    items(state.featuredFive, key = Game::id) { game ->
-                        CompactGameCard(game, onClick = { viewModel.selectGame(game) })
-                    }
+                LazyRow(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+                    items(state.featuredFive, key = Game::id) { game -> SmallGameCard(game) { vm.selectGame(game) } }
                 }
             }
         }
-
-        item { SearchBox(state, viewModel) }
-        item { SourcePanel(state) }
+        item { SearchInput(state, vm) }
+        item { SourceStatus(state) }
     }
 }
 
 @Composable
-private fun SearchScreen(state: AppUiState, viewModel: MainViewModel, padding: PaddingValues) {
-    var showFilters by rememberSaveable { mutableStateOf(false) }
-    Column(
-        modifier = Modifier
-            .fillMaxSize()
-            .padding(padding)
-            .padding(horizontal = 16.dp),
-    ) {
-        Spacer(Modifier.height(14.dp))
-        SearchBox(state, viewModel)
-        Spacer(Modifier.height(10.dp))
+private fun SearchScreen(state: AppUiState, vm: MainViewModel, padding: PaddingValues) {
+    var filtersVisible by rememberSaveable { mutableStateOf(false) }
+    Column(Modifier.fillMaxSize().padding(padding).padding(horizontal = 16.dp)) {
+        Spacer(Modifier.height(12.dp))
+        SearchInput(state, vm)
         Row(verticalAlignment = Alignment.CenterVertically) {
-            OutlinedButton(onClick = { showFilters = !showFilters }) {
-                Text(if (showFilters) "СХОВАТИ ФІЛЬТРИ" else "ФІЛЬТРИ")
-            }
-            Spacer(Modifier.width(10.dp))
-            Text("${state.visibleResults.size} результатів", color = SaveMuted)
+            TextButton(onClick = { filtersVisible = !filtersVisible }) { Text(if (filtersVisible) "СХОВАТИ ФІЛЬТРИ" else "ФІЛЬТРИ") }
+            Text("${state.visibleResults.size} ігор", color = SaveMuted)
             Spacer(Modifier.weight(1f))
-            TextButton(onClick = viewModel::resetFilters) { Text("СКИНУТИ") }
+            TextButton(onClick = vm::resetFilters) { Text("СКИНУТИ") }
         }
-        if (showFilters) {
-            FiltersPanel(state, viewModel)
-            Spacer(Modifier.height(10.dp))
-        }
+        if (filtersVisible) Filters(state, vm)
         if (state.loading) {
-            Row(
-                modifier = Modifier.fillMaxWidth().padding(24.dp),
-                horizontalArrangement = Arrangement.Center,
-                verticalAlignment = Alignment.CenterVertically,
-            ) {
+            Row(Modifier.fillMaxWidth().padding(18.dp), horizontalArrangement = Arrangement.Center) {
                 CircularProgressIndicator(Modifier.size(24.dp), strokeWidth = 3.dp)
-                Spacer(Modifier.width(12.dp))
-                Text("Оновлення джерел…")
             }
         }
-        LazyColumn(
-            modifier = Modifier.fillMaxSize(),
-            contentPadding = PaddingValues(bottom = 24.dp),
-            verticalArrangement = Arrangement.spacedBy(12.dp),
-        ) {
+        LazyColumn(verticalArrangement = Arrangement.spacedBy(10.dp), contentPadding = PaddingValues(bottom = 24.dp)) {
             items(state.visibleResults, key = Game::id) { game ->
-                GameResultCard(
+                GameRow(
                     game = game,
                     saved = state.library.any { it.game.id == game.id },
-                    onSelect = { viewModel.selectGame(game) },
-                    onSave = { viewModel.addToLibrary(game) },
+                    onOpen = { vm.selectGame(game) },
+                    onSave = { vm.addToLibrary(game) },
                 )
             }
-            if (!state.loading && state.visibleResults.isEmpty()) {
-                item { EmptyCard("Нічого не знайдено", "Змініть запит або скиньте фільтри.") }
-            }
+            if (!state.loading && state.visibleResults.isEmpty()) item { Empty("Нічого не знайдено") }
         }
     }
 }
 
 @Composable
-private fun SearchBox(state: AppUiState, viewModel: MainViewModel) {
-    Row(horizontalArrangement = Arrangement.spacedBy(10.dp), verticalAlignment = Alignment.CenterVertically) {
+private fun SearchInput(state: AppUiState, vm: MainViewModel) {
+    Row(horizontalArrangement = Arrangement.spacedBy(8.dp), verticalAlignment = Alignment.CenterVertically) {
         OutlinedTextField(
             value = state.query,
-            onValueChange = viewModel::setQuery,
+            onValueChange = vm::setQuery,
             label = { Text("Назва гри") },
-            placeholder = { Text("Metroid Prime, Zelda, Koudelka…") },
+            placeholder = { Text("Zelda, Metroid, Koudelka…") },
             singleLine = true,
             modifier = Modifier.weight(1f),
             keyboardOptions = KeyboardOptions(imeAction = ImeAction.Search),
-            keyboardActions = KeyboardActions(onSearch = { viewModel.search() }),
+            keyboardActions = KeyboardActions(onSearch = { vm.search() }),
         )
-        Button(onClick = viewModel::search, enabled = !state.loading) { Text("ПОШУК") }
+        Button(onClick = vm::search, enabled = !state.loading) { Text("ПОШУК") }
     }
 }
 
 @Composable
-private fun FiltersPanel(state: AppUiState, viewModel: MainViewModel) {
-    Card(
-        colors = CardDefaults.cardColors(containerColor = SaveSurface),
-        shape = RoundedCornerShape(18.dp),
-    ) {
-        Column(Modifier.padding(14.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
-            SelectField(
-                label = "Платформа",
-                selected = state.filters.platform ?: "Усі платформи",
-                options = listOf("Усі платформи") + state.platformOptions,
-                onSelect = { selected ->
-                    viewModel.updateFilters { it.copy(platform = selected.takeUnless { value -> value == "Усі платформи" }) }
-                }
-            )
-            SelectField(
-                label = "Жанр",
-                selected = state.filters.genre ?: "Усі жанри",
-                options = listOf("Усі жанри") + state.genreOptions,
-                onSelect = { selected ->
-                    viewModel.updateFilters { it.copy(genre = selected.takeUnless { value -> value == "Усі жанри" }) }
-                }
-            )
-            Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
-                NumberField(
-                    label = "Рік від",
-                    value = state.filters.yearFrom,
-                    modifier = Modifier.weight(1f),
-                    onValue = { value -> viewModel.updateFilters { it.copy(yearFrom = value.coerceAtMost(it.yearTo)) } },
-                )
-                NumberField(
-                    label = "Рік до",
-                    value = state.filters.yearTo,
-                    modifier = Modifier.weight(1f),
-                    onValue = { value -> viewModel.updateFilters { it.copy(yearTo = value.coerceAtLeast(it.yearFrom)) } },
-                )
-            }
-            SelectField(
-                label = "Сортування",
-                selected = state.filters.sort.label,
-                options = SortMode.entries.map(SortMode::label),
-                onSelect = { label ->
-                    SortMode.entries.firstOrNull { it.label == label }?.let { mode ->
-                        viewModel.updateFilters { it.copy(sort = mode) }
-                    }
-                },
-            )
-            Row(verticalAlignment = Alignment.CenterVertically) {
-                Checkbox(
-                    checked = state.filters.hideSaved,
-                    onCheckedChange = { checked -> viewModel.updateFilters { it.copy(hideSaved = checked) } },
-                )
-                Text("Приховати додані до списку")
-            }
+private fun Filters(state: AppUiState, vm: MainViewModel) {
+    Panel {
+        Select("Платформа", state.filters.platform ?: "Усі", listOf("Усі") + state.platformOptions) {
+            vm.updateFilters { f -> f.copy(platform = it.takeUnless { value -> value == "Усі" }) }
+        }
+        Select("Жанр", state.filters.genre ?: "Усі", listOf("Усі") + state.genreOptions) {
+            vm.updateFilters { f -> f.copy(genre = it.takeUnless { value -> value == "Усі" }) }
+        }
+        Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+            YearField("Від", state.filters.yearFrom, Modifier.weight(1f)) { year -> vm.updateFilters { it.copy(yearFrom = year) } }
+            YearField("До", state.filters.yearTo, Modifier.weight(1f)) { year -> vm.updateFilters { it.copy(yearTo = year) } }
+        }
+        Select("Сортування", state.filters.sort.label, SortMode.entries.map { it.label }) { value ->
+            SortMode.entries.firstOrNull { it.label == value }?.let { mode -> vm.updateFilters { it.copy(sort = mode) } }
+        }
+        Row(verticalAlignment = Alignment.CenterVertically) {
+            Checkbox(state.filters.hideSaved, { checked -> vm.updateFilters { it.copy(hideSaved = checked) } })
+            Text("Приховати додані")
         }
     }
 }
 
 @Composable
-private fun LibraryScreen(state: AppUiState, viewModel: MainViewModel, padding: PaddingValues) {
+private fun LibraryScreen(state: AppUiState, vm: MainViewModel, padding: PaddingValues) {
     val context = LocalContext.current
-    var editEntry by remember { mutableStateOf<LibraryEntry?>(null) }
-    var replaceOnImport by remember { mutableStateOf(false) }
-
-    val exportLauncher = rememberLauncherForActivityResult(
-        ActivityResultContracts.CreateDocument("application/json")
-    ) { uri ->
-        if (uri != null) {
-            runCatching {
-                context.contentResolver.openOutputStream(uri)?.bufferedWriter()?.use {
-                    it.write(viewModel.exportLibrary())
-                }
-            }
-        }
+    var editing by remember { mutableStateOf<LibraryEntry?>(null) }
+    val export = rememberLauncherForActivityResult(ActivityResultContracts.CreateDocument("application/json")) { uri ->
+        uri?.let { context.writeText(it, vm.exportLibrary()) }
     }
-    val importLauncher = rememberLauncherForActivityResult(
-        ActivityResultContracts.OpenDocument()
-    ) { uri ->
-        if (uri != null) {
-            val raw = runCatching {
-                context.contentResolver.openInputStream(uri)?.bufferedReader()?.use { it.readText() }
-            }.getOrNull()
-            if (raw != null) viewModel.importLibrary(raw, replaceOnImport)
-        }
+    val import = rememberLauncherForActivityResult(ActivityResultContracts.OpenDocument()) { uri ->
+        uri?.let { context.readText(it)?.let { raw -> vm.importLibrary(raw, false) } }
     }
 
     LazyColumn(
-        modifier = Modifier.fillMaxSize().padding(padding),
+        Modifier.fillMaxSize().padding(padding),
         contentPadding = PaddingValues(16.dp),
-        verticalArrangement = Arrangement.spacedBy(12.dp),
+        verticalArrangement = Arrangement.spacedBy(10.dp),
     ) {
-        item { SectionTitle("Мої ігри", "${state.library.size} записів у локальному сховищі") }
+        item { Title("Мої ігри", "${state.library.size} записів") }
         item {
-            Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
-                OutlinedButton(
-                    onClick = { exportLauncher.launch("save-slot-library.json") },
-                    modifier = Modifier.weight(1f),
-                ) { Text("ЕКСПОРТ JSON") }
-                OutlinedButton(
-                    onClick = {
-                        replaceOnImport = false
-                        importLauncher.launch(arrayOf("application/json", "text/plain"))
-                    },
-                    modifier = Modifier.weight(1f),
-                ) { Text("ІМПОРТ") }
+            Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                OutlinedButton({ export.launch("save-slot-library.json") }, Modifier.weight(1f)) { Text("ЕКСПОРТ") }
+                OutlinedButton({ import.launch(arrayOf("application/json", "text/plain")) }, Modifier.weight(1f)) { Text("ІМПОРТ") }
             }
         }
         items(state.library, key = { it.game.id }) { entry ->
-            LibraryCard(
-                entry = entry,
-                onEdit = { editEntry = entry },
-                onDelete = { viewModel.removeFromLibrary(entry.game.id) },
-            )
+            LibraryRow(entry, { editing = entry }, { vm.removeFromLibrary(entry.game.id) })
         }
-        if (state.library.isEmpty()) {
-            item { EmptyCard("Список порожній", "Додайте гру з результатів пошуку або зі слота.") }
-        }
+        if (state.library.isEmpty()) item { Empty("Список порожній") }
     }
-
-    editEntry?.let { entry ->
-        LibraryEditor(
-            entry = entry,
-            onDismiss = { editEntry = null },
-            onSave = { status, collection, priority, rating, notes ->
-                viewModel.updateLibraryEntry(entry.game.id, status, collection, priority, rating, notes)
-                editEntry = null
-            },
-        )
+    editing?.let { entry ->
+        LibraryDialog(entry, { editing = null }) { status, list, priority, rating, notes ->
+            vm.updateLibraryEntry(entry.game.id, status, list, priority, rating, notes)
+            editing = null
+        }
     }
 }
 
 @Composable
-private fun SettingsScreen(state: AppUiState, viewModel: MainViewModel, padding: PaddingValues) {
+private fun SettingsScreen(state: AppUiState, vm: MainViewModel, padding: PaddingValues) {
     var settings by remember(state.settings) { mutableStateOf(state.settings) }
-    val formatter = remember { DecimalFormat("#,##0.0") }
-
     LazyColumn(
-        modifier = Modifier.fillMaxSize().padding(padding),
+        Modifier.fillMaxSize().padding(padding),
         contentPadding = PaddingValues(16.dp),
-        verticalArrangement = Arrangement.spacedBy(14.dp),
+        verticalArrangement = Arrangement.spacedBy(12.dp),
     ) {
-        item { SectionTitle("Параметри", "Джерела, рух і локальні дані") }
+        item { Title("Параметри", "Джерела та локальні дані") }
         item {
-            SettingsCard("Онлайн-джерела") {
-                SettingSwitch(
-                    "Wikidata",
-                    "Основний каталог без API-ключа",
-                    settings.useWikidata,
-                ) { settings = settings.copy(useWikidata = it) }
+            Panel {
+                Toggle("Wikidata", "Основний каталог без ключа", settings.useWikidata) { settings = settings.copy(useWikidata = it) }
                 HorizontalDivider()
-                SettingSwitch(
-                    "Steam-рейтинг",
-                    "Довантажувати відгуки для знайдених Steam ID",
-                    settings.useSteamRatings,
-                ) { settings = settings.copy(useSteamRatings = it) }
+                Toggle("Steam-рейтинг", "Довантаження відгуків", settings.useSteamRatings) { settings = settings.copy(useSteamRatings = it) }
                 HorizontalDivider()
                 OutlinedTextField(
                     value = settings.rawgApiKey,
                     onValueChange = { settings = settings.copy(rawgApiKey = it) },
-                    label = { Text("RAWG API key") },
-                    supportingText = { Text("Необов’язково. Зберігається лише на пристрої.") },
+                    label = { Text("RAWG API key (необов’язково)") },
+                    modifier = Modifier.fillMaxWidth(),
                     singleLine = true,
-                    modifier = Modifier.fillMaxWidth(),
                 )
+                Toggle("Зменшити анімації", "Без польоту картриджа", settings.reducedMotion) { settings = settings.copy(reducedMotion = it) }
             }
         }
+        item { Button({ vm.saveSettings(settings) }, Modifier.fillMaxWidth()) { Text("ЗБЕРЕГТИ") } }
         item {
-            SettingsCard("Інтерфейс") {
-                SettingSwitch(
-                    "Зменшити анімації",
-                    "Картридж одразу з’являється у слоті",
-                    settings.reducedMotion,
-                ) { settings = settings.copy(reducedMotion = it) }
+            Panel {
+                Text("Кеш: ${state.cacheBytes / 1024} КБ", color = SaveMuted)
+                OutlinedButton(vm::clearCache, Modifier.fillMaxWidth()) { Text("ОЧИСТИТИ КЕШ") }
             }
         }
-        item {
-            Button(onClick = { viewModel.saveSettings(settings) }, modifier = Modifier.fillMaxWidth()) {
-                Text("ЗБЕРЕГТИ ПАРАМЕТРИ")
-            }
-        }
-        item {
-            SettingsCard("Кеш") {
-                Text(
-                    "Пошукові відповіді: ${formatter.format(state.cacheBytes / 1024.0 / 1024.0)} МБ",
-                    color = SaveMuted,
-                )
-                Spacer(Modifier.height(10.dp))
-                OutlinedButton(
-                    onClick = viewModel::clearCache,
-                    colors = ButtonDefaults.outlinedButtonColors(contentColor = SaveDanger),
-                    modifier = Modifier.fillMaxWidth(),
-                ) { Text("ОЧИСТИТИ КЕШ") }
-            }
-        }
-        item { SourcePanel(state) }
+        item { SourceStatus(state) }
     }
 }
 
 @Composable
-private fun GameResultCard(game: Game, saved: Boolean, onSelect: () -> Unit, onSave: () -> Unit) {
-    Card(
-        modifier = Modifier.fillMaxWidth().clickable(onClick = onSelect),
-        colors = CardDefaults.cardColors(containerColor = SaveSurface),
-        shape = RoundedCornerShape(18.dp),
-    ) {
-        Row(Modifier.padding(12.dp), verticalAlignment = Alignment.CenterVertically) {
-            RemoteImage(
-                url = game.coverUrl,
-                contentDescription = game.title,
-                modifier = Modifier.size(width = 88.dp, height = 118.dp).clip(RoundedCornerShape(12.dp)),
-            )
-            Spacer(Modifier.width(14.dp))
-            Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(5.dp)) {
-                Text(game.title, fontWeight = FontWeight.Bold, fontSize = 18.sp, maxLines = 2)
-                Text(gameMeta(game), color = SaveMuted, fontSize = 13.sp)
-                if (game.genres.isNotEmpty()) {
-                    Text(game.genres.take(3).joinToString(" · "), color = MaterialTheme.colorScheme.secondary, fontSize = 12.sp)
-                }
-                Text(game.source.label, color = SaveMuted, fontSize = 11.sp, fontFamily = FontFamily.Monospace)
-            }
-            TextButton(onClick = onSave, enabled = !saved) { Text(if (saved) "✓" else "+") }
-        }
-    }
-}
-
-@Composable
-private fun CompactGameCard(game: Game, onClick: () -> Unit) {
-    Card(
-        modifier = Modifier.width(150.dp).clickable(onClick = onClick),
-        colors = CardDefaults.cardColors(containerColor = SaveSurface),
-        shape = RoundedCornerShape(16.dp),
-    ) {
-        RemoteImage(
-            url = game.coverUrl,
-            contentDescription = game.title,
-            modifier = Modifier.fillMaxWidth().height(170.dp),
-        )
-        Column(Modifier.padding(10.dp)) {
-            Text(game.title, fontWeight = FontWeight.Bold, maxLines = 2, overflow = TextOverflow.Ellipsis)
-            Text(game.year?.toString() ?: "Рік невідомий", color = SaveMuted, fontSize = 12.sp)
-        }
-    }
-}
-
-@Composable
-private fun LibraryCard(entry: LibraryEntry, onEdit: () -> Unit, onDelete: () -> Unit) {
-    Card(
-        modifier = Modifier.fillMaxWidth().clickable(onClick = onEdit),
-        colors = CardDefaults.cardColors(containerColor = SaveSurface),
-        shape = RoundedCornerShape(18.dp),
-    ) {
-        Row(Modifier.padding(12.dp), verticalAlignment = Alignment.CenterVertically) {
-            RemoteImage(
-                url = entry.game.coverUrl,
-                contentDescription = entry.game.title,
-                modifier = Modifier.size(68.dp).clip(RoundedCornerShape(12.dp)),
-            )
+private fun GameRow(game: Game, saved: Boolean, onOpen: () -> Unit, onSave: () -> Unit) {
+    Card(Modifier.fillMaxWidth().clickable(onClick = onOpen), colors = CardDefaults.cardColors(containerColor = SaveSurface)) {
+        Row(Modifier.padding(10.dp), verticalAlignment = Alignment.CenterVertically) {
+            RemoteImage(game.coverUrl, game.title, Modifier.size(width = 78.dp, height = 104.dp).clip(RoundedCornerShape(10.dp)))
             Spacer(Modifier.width(12.dp))
+            Column(Modifier.weight(1f)) {
+                Text(game.title, fontWeight = FontWeight.Bold, fontSize = 17.sp, maxLines = 2)
+                Text(meta(game), color = SaveMuted, fontSize = 12.sp)
+                Text(game.source.label, color = SaveGreen, fontSize = 11.sp)
+            }
+            TextButton(onSave, enabled = !saved) { Text(if (saved) "✓" else "+") }
+        }
+    }
+}
+
+@Composable
+private fun SmallGameCard(game: Game, onClick: () -> Unit) {
+    Card(Modifier.width(145.dp).clickable(onClick = onClick), colors = CardDefaults.cardColors(containerColor = SaveSurface)) {
+        RemoteImage(game.coverUrl, game.title, Modifier.fillMaxWidth().height(165.dp))
+        Text(game.title, Modifier.padding(10.dp), fontWeight = FontWeight.Bold, maxLines = 2, overflow = TextOverflow.Ellipsis)
+    }
+}
+
+@Composable
+private fun LibraryRow(entry: LibraryEntry, onEdit: () -> Unit, onDelete: () -> Unit) {
+    Card(Modifier.fillMaxWidth().clickable(onClick = onEdit), colors = CardDefaults.cardColors(containerColor = SaveSurface)) {
+        Row(Modifier.padding(12.dp), verticalAlignment = Alignment.CenterVertically) {
             Column(Modifier.weight(1f)) {
                 Text(entry.game.title, fontWeight = FontWeight.Bold)
                 Text("${entry.status.label} · ${entry.collection}", color = SaveMuted, fontSize = 12.sp)
-                Text("Пріоритет ${entry.priority}/5" + (entry.personalRating?.let { " · $it/10" } ?: ""), color = SaveAmber, fontSize = 12.sp)
             }
-            TextButton(onClick = onDelete, colors = ButtonDefaults.textButtonColors(contentColor = SaveDanger)) {
-                Text("×")
-            }
+            TextButton(onDelete) { Text("×", color = SaveDanger) }
         }
     }
 }
 
 @Composable
-private fun LibraryEditor(
-    entry: LibraryEntry,
-    onDismiss: () -> Unit,
-    onSave: (PlayStatus, String, Int, Int?, String) -> Unit,
-) {
+private fun LibraryDialog(entry: LibraryEntry, dismiss: () -> Unit, save: (PlayStatus, String, Int, Int?, String) -> Unit) {
     var status by remember { mutableStateOf(entry.status) }
-    var collection by remember { mutableStateOf(entry.collection) }
+    var list by remember { mutableStateOf(entry.collection) }
     var priority by remember { mutableIntStateOf(entry.priority) }
     var rating by remember { mutableStateOf(entry.personalRating?.toString().orEmpty()) }
     var notes by remember { mutableStateOf(entry.notes) }
-
     AlertDialog(
-        onDismissRequest = onDismiss,
+        onDismissRequest = dismiss,
         title = { Text(entry.game.title) },
         text = {
-            Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
-                SelectField(
-                    label = "Статус",
-                    selected = status.label,
-                    options = PlayStatus.entries.map(PlayStatus::label),
-                    onSelect = { value -> PlayStatus.entries.firstOrNull { it.label == value }?.let { status = it } },
-                )
-                OutlinedTextField(
-                    value = collection,
-                    onValueChange = { collection = it },
-                    label = { Text("Список") },
-                    singleLine = true,
-                )
-                Text("Пріоритет: $priority/5", color = SaveMuted)
-                Slider(value = priority.toFloat(), onValueChange = { priority = it.toInt().coerceIn(1, 5) }, valueRange = 1f..5f, steps = 3)
-                OutlinedTextField(
-                    value = rating,
-                    onValueChange = { rating = it.filter(Char::isDigit).take(2) },
-                    label = { Text("Особиста оцінка 1–10") },
-                    keyboardOptions = KeyboardOptions.Default,
-                    singleLine = true,
-                )
-                OutlinedTextField(
-                    value = notes,
-                    onValueChange = { notes = it },
-                    label = { Text("Нотатки") },
-                    minLines = 3,
-                )
+            Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                Select("Статус", status.label, PlayStatus.entries.map { it.label }) { value ->
+                    PlayStatus.entries.firstOrNull { it.label == value }?.let { status = it }
+                }
+                OutlinedTextField(list, { list = it }, label = { Text("Список") })
+                Text("Пріоритет $priority/5")
+                Slider(priority.toFloat(), { priority = it.toInt() }, valueRange = 1f..5f, steps = 3)
+                OutlinedTextField(rating, { rating = it.filter(Char::isDigit).take(2) }, label = { Text("Оцінка 1–10") })
+                OutlinedTextField(notes, { notes = it }, label = { Text("Нотатки") }, minLines = 3)
             }
         },
-        confirmButton = {
-            Button(onClick = { onSave(status, collection, priority, rating.toIntOrNull(), notes) }) { Text("ЗБЕРЕГТИ") }
-        },
-        dismissButton = { TextButton(onClick = onDismiss) { Text("СКАСУВАТИ") } },
+        confirmButton = { Button({ save(status, list, priority, rating.toIntOrNull(), notes) }) { Text("ЗБЕРЕГТИ") } },
+        dismissButton = { TextButton(dismiss) { Text("СКАСУВАТИ") } },
     )
 }
 
 @Composable
-private fun SourcePanel(state: AppUiState) {
-    Card(
-        colors = CardDefaults.cardColors(containerColor = SaveSurface),
-        shape = RoundedCornerShape(18.dp),
-    ) {
-        Column(Modifier.padding(14.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
-            Eyebrow("СТАН ДЖЕРЕЛ")
-            if (state.sourceHealth.isEmpty()) {
-                Text("Дані ще не запитувались", color = SaveMuted)
-            } else {
-                state.sourceHealth.distinctBy { it.name }.forEach { source ->
-                    Row(verticalAlignment = Alignment.CenterVertically) {
-                        Box(
-                            Modifier.size(8.dp).clip(RoundedCornerShape(50)).background(
-                                when (source.state) {
-                                    HealthState.READY -> SaveGreen
-                                    HealthState.ERROR -> SaveDanger
-                                    HealthState.LOADING -> SaveAmber
-                                    HealthState.IDLE -> SaveMuted
-                                }
-                            )
-                        )
-                        Spacer(Modifier.width(8.dp))
-                        Text(source.name, fontWeight = FontWeight.SemiBold)
-                        Spacer(Modifier.weight(1f))
-                        Text(source.message, color = SaveMuted, fontSize = 12.sp, maxLines = 1)
-                    }
+private fun SourceStatus(state: AppUiState) {
+    Panel {
+        Label("СТАН ДЖЕРЕЛ")
+        if (state.sourceHealth.isEmpty()) Text("Ще не перевірено", color = SaveMuted)
+        state.sourceHealth.distinctBy { it.name }.forEach { source ->
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                val color = when (source.state) {
+                    HealthState.READY -> SaveGreen
+                    HealthState.ERROR -> SaveDanger
+                    HealthState.LOADING -> SaveAmber
+                    HealthState.IDLE -> SaveMuted
                 }
+                Box(Modifier.size(8.dp).clip(RoundedCornerShape(50)).background(color))
+                Spacer(Modifier.width(8.dp))
+                Text(source.name, fontWeight = FontWeight.SemiBold)
+                Spacer(Modifier.weight(1f))
+                Text(source.message, color = SaveMuted, fontSize = 11.sp, maxLines = 1)
             }
         }
     }
 }
 
 @Composable
-private fun SettingsCard(title: String, content: @Composable ColumnScope.() -> Unit) {
+private fun Panel(content: @Composable ColumnScope.() -> Unit) {
     Card(colors = CardDefaults.cardColors(containerColor = SaveSurface), shape = RoundedCornerShape(18.dp)) {
-        Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
-            Eyebrow(title.uppercase())
-            content()
-        }
+        Column(Modifier.fillMaxWidth().padding(16.dp), verticalArrangement = Arrangement.spacedBy(10.dp), content = content)
     }
 }
 
 @Composable
-private fun SettingSwitch(title: String, description: String, checked: Boolean, onChange: (Boolean) -> Unit) {
-    Row(verticalAlignment = Alignment.CenterVertically) {
-        Column(Modifier.weight(1f)) {
-            Text(title, fontWeight = FontWeight.SemiBold)
-            Text(description, color = SaveMuted, fontSize = 12.sp)
-        }
-        Switch(checked = checked, onCheckedChange = onChange)
-    }
-}
-
-@Composable
-private fun SelectField(label: String, selected: String, options: List<String>, onSelect: (String) -> Unit) {
-    var expanded by remember { mutableStateOf(false) }
+private fun Select(label: String, selected: String, options: List<String>, onSelect: (String) -> Unit) {
+    var open by remember { mutableStateOf(false) }
     Column {
-        Text(label.uppercase(), color = SaveMuted, fontSize = 10.sp, fontFamily = FontFamily.Monospace)
+        Label(label.uppercase())
         Box {
-            OutlinedButton(onClick = { expanded = true }, modifier = Modifier.fillMaxWidth()) {
+            OutlinedButton({ open = true }, Modifier.fillMaxWidth()) {
                 Text(selected, maxLines = 1, overflow = TextOverflow.Ellipsis)
                 Spacer(Modifier.weight(1f))
                 Text("▾")
             }
-            DropdownMenu(expanded = expanded, onDismissRequest = { expanded = false }) {
+            DropdownMenu(open, { open = false }) {
                 options.distinct().forEach { option ->
-                    DropdownMenuItem(
-                        text = { Text(option) },
-                        onClick = {
-                            expanded = false
-                            onSelect(option)
-                        },
-                    )
+                    DropdownMenuItem({ Text(option) }, {
+                        open = false
+                        onSelect(option)
+                    })
                 }
             }
         }
@@ -728,65 +457,33 @@ private fun SelectField(label: String, selected: String, options: List<String>, 
 }
 
 @Composable
-private fun NumberField(label: String, value: Int, modifier: Modifier = Modifier, onValue: (Int) -> Unit) {
-    OutlinedTextField(
-        value = value.toString(),
-        onValueChange = { raw -> raw.filter(Char::isDigit).take(4).toIntOrNull()?.let(onValue) },
-        label = { Text(label) },
-        modifier = modifier,
-        singleLine = true,
-    )
+private fun YearField(label: String, value: Int, modifier: Modifier, onChange: (Int) -> Unit) {
+    OutlinedTextField(value.toString(), { it.filter(Char::isDigit).take(4).toIntOrNull()?.let(onChange) }, label = { Text(label) }, modifier = modifier)
 }
 
 @Composable
-private fun SectionTitle(title: String, subtitle: String) {
-    Column {
-        Text(title, style = MaterialTheme.typography.headlineSmall, fontWeight = FontWeight.Bold)
-        Text(subtitle, color = SaveMuted)
-    }
-}
-
-@Composable
-private fun Eyebrow(text: String) {
-    Text(text, color = SaveGreen, fontFamily = FontFamily.Monospace, fontSize = 11.sp, letterSpacing = 1.sp)
-}
-
-@Composable
-private fun EmptyCard(title: String, message: String) {
-    Card(colors = CardDefaults.cardColors(containerColor = SaveSurfaceHigh), shape = RoundedCornerShape(18.dp)) {
-        Column(Modifier.fillMaxWidth().padding(24.dp), horizontalAlignment = Alignment.CenterHorizontally) {
-            Text(title, fontWeight = FontWeight.Bold)
-            Text(message, color = SaveMuted)
+private fun Toggle(title: String, subtitle: String, checked: Boolean, onChange: (Boolean) -> Unit) {
+    Row(verticalAlignment = Alignment.CenterVertically) {
+        Column(Modifier.weight(1f)) {
+            Text(title, fontWeight = FontWeight.SemiBold)
+            Text(subtitle, color = SaveMuted, fontSize = 12.sp)
         }
+        Switch(checked, onChange)
     }
 }
 
-private fun gameMeta(game: Game): String = buildList {
-    game.year?.let { add(it.toString()) }
-    game.platforms.firstOrNull()?.let(::add)
-    game.ratingPercent?.let { rating ->
-        add("$rating%" + (game.ratingCount?.let { " (${formatCount(it)})" } ?: ""))
-    }
-}.joinToString(" · ").ifBlank { "Метадані уточнюються" }
+@Composable private fun Label(value: String) = Text(value, color = SaveGreen, fontSize = 10.sp, fontFamily = FontFamily.Monospace)
+@Composable private fun Title(title: String, subtitle: String) = Column { Text(title, style = MaterialTheme.typography.headlineSmall, fontWeight = FontWeight.Bold); Text(subtitle, color = SaveMuted) }
+@Composable private fun Empty(value: String) = Box(Modifier.fillMaxWidth().background(SaveSurfaceHigh, RoundedCornerShape(16.dp)).padding(24.dp), contentAlignment = Alignment.Center) { Text(value, color = SaveMuted) }
 
-private fun formatCount(value: Int): String = when {
-    value >= 1_000_000 -> "${value / 1_000_000.0}".take(3) + "млн"
-    value >= 1_000 -> "${value / 1_000.0}".take(3) + "тис."
-    else -> value.toString()
-}
+private fun meta(game: Game): String = listOfNotNull(
+    game.year?.toString(),
+    game.platforms.firstOrNull(),
+    game.ratingPercent?.let { "$it%" },
+).joinToString(" · ").ifBlank { "Метадані уточнюються" }
 
-private val AppScreen.label: String
-    get() = when (this) {
-        AppScreen.HOME -> "Слот"
-        AppScreen.SEARCH -> "Пошук"
-        AppScreen.LIBRARY -> "Список"
-        AppScreen.SETTINGS -> "Параметри"
-    }
+private val AppScreen.title: String get() = when (this) { AppScreen.HOME -> "Слот"; AppScreen.SEARCH -> "Пошук"; AppScreen.LIBRARY -> "Список"; AppScreen.SETTINGS -> "Параметри" }
+private val AppScreen.icon: String get() = when (this) { AppScreen.HOME -> "▣"; AppScreen.SEARCH -> ">_"; AppScreen.LIBRARY -> "≡"; AppScreen.SETTINGS -> "⚙" }
 
-private val AppScreen.symbol: String
-    get() = when (this) {
-        AppScreen.HOME -> "▣"
-        AppScreen.SEARCH -> ">_"
-        AppScreen.LIBRARY -> "≡"
-        AppScreen.SETTINGS -> "⚙"
-    }
+private fun Context.writeText(uri: android.net.Uri, value: String) = runCatching { contentResolver.openOutputStream(uri)?.bufferedWriter()?.use { it.write(value) } }
+private fun Context.readText(uri: android.net.Uri): String? = runCatching { contentResolver.openInputStream(uri)?.bufferedReader()?.use { it.readText() } }.getOrNull()
