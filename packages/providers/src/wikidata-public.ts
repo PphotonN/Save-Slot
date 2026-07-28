@@ -39,6 +39,7 @@ interface SelectedArticle {
   qid: string;
   language: string;
   title: string;
+  priority: number;
 }
 
 const MAX_ARTICLES_PER_REQUEST = 20;
@@ -145,13 +146,22 @@ export class WikidataProvider implements ProviderAdapter {
         if (!entity.id) continue;
         const localized = entity.sitelinks?.[`${language}wiki`];
         const english = entity.sitelinks?.enwiki;
-        const sitelink = localized?.title ? localized : english;
-        if (!sitelink?.title) continue;
-        selected.push({
-          qid: entity.id,
-          language: sitelink === localized ? language : 'en',
-          title: sitelink.title,
-        });
+        if (localized?.title) {
+          selected.push({
+            qid: entity.id,
+            language,
+            title: localized.title,
+            priority: 0,
+          });
+        }
+        if (english?.title && (language !== 'en' || english.title !== localized?.title)) {
+          selected.push({
+            qid: entity.id,
+            language: 'en',
+            title: english.title,
+            priority: language === 'en' ? 0 : 1,
+          });
+        }
       }
     }
     return selected;
@@ -191,7 +201,10 @@ export class WikidataProvider implements ProviderAdapter {
           if (page.missing || !qid || !page.extract?.trim()) continue;
           const article = byQid.get(qid);
           if (!article) continue;
-          byIdentity.set(qid, { article, page });
+          const previous = byIdentity.get(qid);
+          if (!previous || article.priority < previous.article.priority) {
+            byIdentity.set(qid, { article, page });
+          }
         }
       }
     }
