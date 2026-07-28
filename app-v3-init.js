@@ -1,4 +1,6 @@
 (function loadCurrentEngine() {
+  let finalStartup = null;
+
   function loadScript(src) {
     return new Promise((resolve, reject) => {
       const script = document.createElement("script");
@@ -10,16 +12,22 @@
     });
   }
 
-  async function loadScriptWithoutAutoInit(src) {
-    const response = await fetch(src, { cache: "no-store" });
-    if (!response.ok) throw new Error(`Не вдалося завантажити ${src}: HTTP ${response.status}`);
-    const source = await response.text();
-    const marker = "\ninitV5().catch(error => {";
-    const markerIndex = source.lastIndexOf(marker);
-    if (markerIndex < 0) throw new Error("Не знайдено точку автоматичного запуску app-v5.js");
-    const script = document.createElement("script");
-    script.textContent = `${source.slice(0, markerIndex)}\n//# sourceURL=${src}`;
-    document.head.append(script);
+  function holdStartup() {
+    const deferred = async function deferredStartup() {
+      window.__saveSlotStartupWasRequested = true;
+    };
+    Object.defineProperty(window, "loadInitialGames", {
+      configurable: true,
+      get() { return deferred; },
+      set(value) { if (typeof value === "function") finalStartup = value; }
+    });
+  }
+
+  async function releaseStartup() {
+    delete window.loadInitialGames;
+    if (typeof finalStartup !== "function") throw new Error("Android-модуль не надав функцію оновлення бази");
+    window.loadInitialGames = finalStartup;
+    await window.loadInitialGames();
   }
 
   function loadStyle(src) {
@@ -35,7 +43,10 @@
 
   loadStyle("./styles-v10.css?v=16");
   loadScript("./app-v4.js?v=16")
-    .then(() => loadScriptWithoutAutoInit("./app-v5.js?v=16"))
+    .then(() => {
+      holdStartup();
+      return loadScript("./app-v5.js?v=16");
+    })
     .then(() => loadScript("./app-v6.js?v=16"))
     .then(() => loadScript("./app-v7.js?v=16"))
     .then(() => loadScript("./app-v8.js?v=16"))
@@ -44,8 +55,10 @@
     .then(() => loadScript("./app-v11.js?v=16"))
     .then(() => loadScript("./app-v12.js?v=16"))
     .then(() => loadScript("./app-v13.js?v=16"))
+    .then(releaseStartup)
     .catch(error => {
       console.error(error);
+      setLoading(false);
       setSourceState("error", "ПОМИЛКА ЗАПУСКУ");
       setFeedback("Не вдалося завантажити актуальний рушій Save Slot.", "error");
     });
