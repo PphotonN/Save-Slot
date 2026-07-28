@@ -59,7 +59,8 @@ describe('Save Slot API detail cache', () => {
     const cacheStatus = requireRecord(await cacheResponse.json(), 'Cache status');
     const stats = requireRecord(cacheStatus.stats, 'Cache statistics');
     expect(Number(stats.writes)).toBeGreaterThan(0);
-    expect(cacheStatus.backends).toEqual(expect.arrayContaining(['memory']));
+    expect(stats.cacheApiEnabled).toBe(false);
+    expect(cacheStatus.backends).toEqual(['memory']);
   });
 
   it('clears catalogue cache entries through the settings endpoint', async () => {
@@ -82,8 +83,11 @@ describe('Save Slot API detail cache', () => {
     const payload = requireRecord(await response.json(), 'Cache clear response');
     expect(payload.cleared).toBe(true);
     expect(Number(payload.memoryEntries)).toBeGreaterThan(0);
+    expect(payload.cacheApiEntries).toBe(0);
+    expect(payload.errors).toBe(0);
     const stats = requireRecord(payload.stats, 'Cache statistics');
     expect(stats.memoryEntries).toBe(0);
+    expect(stats.cacheApiEnabled).toBe(false);
   });
 
   it('allows public read access from Capacitor and browser origins when configured with wildcard CORS', async () => {
@@ -102,13 +106,13 @@ describe('Save Slot API detail cache', () => {
     }
   });
 
-  it('returns matching CORS headers for preflight requests', async () => {
+  it('returns matching CORS headers for cache-clear preflight requests', async () => {
     const response = await worker.fetch(
-      new Request('https://api.example.test/v1/search', {
+      new Request('https://api.example.test/v1/cache', {
         method: 'OPTIONS',
         headers: {
           Origin: 'https://localhost',
-          'Access-Control-Request-Method': 'GET',
+          'Access-Control-Request-Method': 'DELETE',
         },
       }),
       { ALLOWED_ORIGIN: '*' },
