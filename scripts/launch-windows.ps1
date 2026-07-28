@@ -13,8 +13,11 @@ param(
 
 $ErrorActionPreference = 'Stop'
 $ProjectRoot = [System.IO.Path]::GetFullPath($ProjectRoot)
+$NodeExecutable = [System.IO.Path]::GetFullPath($NodeExecutable)
+$PnpmCommand = [System.IO.Path]::GetFullPath($PnpmCommand)
 $ProbeScript = Join-Path $ProjectRoot 'scripts\service-probe.mjs'
 $RunnerScript = Join-Path $ProjectRoot 'scripts\run-service-windows.cmd'
+$SmokeLogDirectory = Join-Path $ProjectRoot '.runtime\smoke-logs'
 $startedProcesses = New-Object System.Collections.Generic.List[System.Diagnostics.Process]
 
 function Assert-File([string]$Path, [string]$Label) {
@@ -25,6 +28,16 @@ function Assert-File([string]$Path, [string]$Label) {
 
 function Quote-CmdArgument([string]$Value) {
   return '"' + $Value.Replace('"', '""') + '"'
+}
+
+function Add-PortableRuntimeToPath {
+  foreach ($path in @((Split-Path -Parent $NodeExecutable), (Split-Path -Parent $PnpmCommand))) {
+    if (($env:Path -split ';') -notcontains $path) {
+      $env:Path = $path + ';' + $env:Path
+    }
+  }
+  $env:npm_config_update_notifier = 'false'
+  $env:WRANGLER_SEND_METRICS = 'false'
 }
 
 function Invoke-ServiceProbe(
@@ -54,28 +67,64 @@ function Test-ServicePortFree([pscustomobject]$Service) {
 }
 
 function Start-ServiceTerminal([pscustomobject]$Service) {
-  $commandLine = @(
-    '/d /c call',
-    (Quote-CmdArgument $RunnerScript),
-    (Quote-CmdArgument $Service.WindowTitle),
-    (Quote-CmdArgument $ProjectRoot),
-    (Quote-CmdArgument $PnpmCommand),
-    $Service.Command
-  ) -join ' '
-
-  $startArguments = @{
-    FilePath = $env:ComSpec
-    ArgumentList = $commandLine
-    WorkingDirectory = $ProjectRoot
-    PassThru = $true
-  }
   if ($SmokeTest) {
-    $startArguments.WindowStyle = 'Hidden'
+    New-Item -ItemType Directory -Force -Path $SmokeLogDirectory | Out-Null
+    $safeName = $Service.ServiceId -replace '[^a-zA-Z0-9_-]', '-'
+    $standardOutput = Join-Path $SmokeLogDirectory ($safeName + '.out.log')
+    $standardError = Join-Path $SmokeLogDirectory ($safeName + '.err.log')
+    Remove-Item -Force -ErrorAction SilentlyContinue $standardOutput, $standardError
+
+    $commandLine = @(
+      '/d /c call',
+      (Quote-CmdArgument $PnpmCommand),
+      $Service.Command
+    ) -join ' '
+    $startArguments = @{
+      FilePath = $env:ComSpec
+      ArgumentList = $commandLine
+      WorkingDirectory = $ProjectRoot
+      PassThru = $true
+      WindowStyle = 'Hidden'
+      RedirectStandardOutput = $standardOutput
+      RedirectStandardError = $standardError
+    }
+    $Service | Add-Member -NotePropertyName StandardOutput -NotePropertyValue $standardOutput -Force
+    $Service | Add-Member -NotePropertyName StandardError -NotePropertyValue $standardError -Force
+  } else {
+    $commandLine = @(
+      '/d /c call',
+      (Quote-CmdArgument $RunnerScript),
+      (Quote-CmdArgument $Service.WindowTitle),
+      (Quote-CmdArgument $ProjectRoot),
+      (Quote-CmdArgument $PnpmCommand),
+      $Service.Command
+    ) -join ' '
+    $startArguments = @{
+      FilePath = $env:ComSpec
+      ArgumentList = $commandLine
+      WorkingDirectory = $ProjectRoot
+      PassThru = $true
+    }
   }
 
   $process = Start-Process @startArguments
   $startedProcesses.Add($process)
   return $process
+}
+
+function Show-ServiceLogs([pscustomobject]$Service) {
+  if (-not $SmokeTest) { return }
+  foreach ($entry in @(
+    [pscustomobject]@{ Label = 'stdout'; Path = $Service.StandardOutput },
+    [pscustomobject]@{ Label = 'stderr'; Path = $Service.StandardError }
+  )) {
+    Write-Host ('--- ' + $Service.DisplayName + ' ' + $entry.Label + ' ---')
+    if (Test-Path -LiteralPath $entry.Path -PathType Leaf) {
+      Get-Content -LiteralPath $entry.Path
+    } else {
+      Write-Host '(no log file)'
+    }
+  }
 }
 
 function Stop-StartedServices {
@@ -106,6 +155,7 @@ function Ensure-Service([pscustomobject]$Service) {
     return
   }
 
+  Show-ServiceLogs $Service
   if ($Service.Optional -and -not $SmokeTest) {
     Write-Host ('[WARN] ' + $Service.DisplayName + ' did not become ready. The web app will use its offline fallback.') -ForegroundColor Yellow
     return
@@ -121,6 +171,7 @@ Assert-File $RunnerScript 'Windows service runner'
 if ([string]::IsNullOrWhiteSpace($env:ComSpec) -or -not (Test-Path -LiteralPath $env:ComSpec)) {
   throw 'Windows command processor (ComSpec) is not available.'
 }
+Add-PortableRuntimeToPath
 
 $services = @(
   [pscustomobject]@{
