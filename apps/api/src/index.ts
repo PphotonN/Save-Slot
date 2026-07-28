@@ -9,10 +9,12 @@ import { fixtureSearchResults } from '@save-slot/domain/fixtures';
 import { normalizePlatformIdentity } from '@save-slot/domain/platforms';
 import {
   FixtureProvider,
+  filterSearchResults,
   searchWithFallback,
   sortSearchResults,
   type SearchPage,
   type SearchSort,
+  type SearchSortDirection,
 } from '@save-slot/providers';
 import {
   LibretroMediaProvider,
@@ -45,6 +47,7 @@ const wikidataProvider = new WikidataProvider();
 const libretroProvider = new LibretroMediaProvider({ timeoutMs: 3_000, maxCandidates: 12 });
 const steamProvider = new SteamMediaProvider({ timeoutMs: 7_000 });
 const validSorts = new Set<SearchSort>(['relevance', 'title', 'year', 'rating', 'votes']);
+const validSortDirections = new Set<SearchSortDirection>(['asc', 'desc']);
 const SEARCH_CACHE_TTL_SECONDS = 6 * 60 * 60;
 const SUGGESTION_CACHE_TTL_SECONDS = 12 * 60 * 60;
 const DETAIL_CACHE_TTL_SECONDS = 30 * 24 * 60 * 60;
@@ -99,6 +102,12 @@ function json(request: Request, env: Env, value: unknown, status = 200): Respons
 function integerParam(value: string | null, fallback: number, minimum: number, maximum: number): number {
   const parsed = Number.parseInt(value ?? '', 10);
   return Number.isFinite(parsed) ? Math.min(maximum, Math.max(minimum, parsed)) : fallback;
+}
+
+function optionalIntegerParam(value: string | null, minimum: number, maximum: number): number | undefined {
+  if (!value?.trim()) return undefined;
+  const parsed = Number.parseInt(value, 10);
+  return Number.isFinite(parsed) ? Math.min(maximum, Math.max(minimum, parsed)) : undefined;
 }
 
 function shuffled<T>(items: T[]): T[] {
@@ -516,6 +525,11 @@ export default {
       const offset = integerParam(url.searchParams.get('cursor'), 0, 0, SEARCH_POOL_LIMIT);
       const requestedSort = url.searchParams.get('sort') as SearchSort | null;
       const sort = requestedSort && validSorts.has(requestedSort) ? requestedSort : 'relevance';
+      const requestedDirection = url.searchParams.get('order') as SearchSortDirection | null;
+      const direction = requestedDirection && validSortDirections.has(requestedDirection) ? requestedDirection : 'desc';
+      const genre = url.searchParams.get('genre')?.trim() || undefined;
+      const yearFrom = optionalIntegerParam(url.searchParams.get('yearFrom'), 1950, 2100);
+      const yearTo = optionalIntegerParam(url.searchParams.get('yearTo'), 1950, 2100);
       if (query) {
         const { page, cacheStatus } = await searchCatalogue(
           cache,
@@ -524,7 +538,8 @@ export default {
           platformId,
           request.signal,
         );
-        const sorted = sortSearchResults(page.items, sort);
+        const filtered = filterSearchResults(page.items, { query: '', genre, yearFrom, yearTo });
+        const sorted = sortSearchResults(filtered, sort, direction);
         const rawItems = sorted.slice(offset, offset + limit);
         const enriched = await enrichPage(
           { items: rawItems, providers: page.providers },
@@ -541,16 +556,21 @@ export default {
           total: sorted.length,
           query,
           sort,
+          order: direction,
+          filters: { platformId, genre, yearFrom, yearTo },
           cache: cacheStatus,
         });
       }
       const page = await discoveryCatalogue(cache, locale, limit, request.signal);
+      const filtered = filterSearchResults(page.items, { query: '', platformId, genre, yearFrom, yearTo });
       return json(request, env, {
         ...page,
-        items: sortSearchResults(page.items, sort),
-        total: page.items.length,
+        items: sortSearchResults(filtered, sort, direction),
+        total: filtered.length,
         query,
         sort,
+        order: direction,
+        filters: { platformId, genre, yearFrom, yearTo },
         cache: 'bypass' satisfies CacheStatus,
       });
     }

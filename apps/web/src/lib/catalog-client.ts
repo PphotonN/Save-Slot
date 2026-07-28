@@ -9,16 +9,34 @@ import { hasVerifiedBoxArt } from '@save-slot/domain/media';
 import {
   FixtureProvider,
   sortSearchResults,
+  type ProviderStatus,
   type SearchRequest,
   type SearchSort,
+  type SearchSortDirection,
 } from '@save-slot/providers';
 import { z } from 'zod';
 
 const fixtureProvider = new FixtureProvider();
+const providerIdSchema = z.enum(['igdb', 'wikidata', 'mobygames', 'rawg', 'steam', 'libretro', 'pcgamingwiki', 'wikipedia', 'official-store', 'manual']);
+
+const providerStatusSchema = z.object({
+  id: providerIdSchema,
+  available: z.boolean(),
+  latencyMs: z.number().nonnegative().optional(),
+  message: z.string().optional(),
+});
+
 const searchResponseSchema = z.object({
   items: z.array(searchResultSchema),
   nextCursor: z.string().optional(),
   total: z.number().int().nonnegative().optional(),
+  providers: z.array(providerStatusSchema).optional().default([]),
+});
+
+const providerOverviewSchema = z.object({
+  providers: z.array(providerStatusSchema),
+  mediaProviders: z.array(providerIdSchema).optional().default([]),
+  planned: z.array(providerIdSchema).optional().default([]),
 });
 
 const searchSuggestionSchema = z.object({
@@ -56,6 +74,7 @@ export interface CatalogSearchPage {
   items: SearchResult[];
   nextCursor?: string;
   total: number;
+  providers: ProviderStatus[];
 }
 
 function browserLocale(): string {
@@ -81,6 +100,7 @@ export class CatalogClient {
   async searchPage(
     request: SearchRequest,
     sort: SearchSort,
+    direction: SearchSortDirection = 'desc',
     signal?: AbortSignal,
   ): Promise<CatalogSearchPage> {
     if (this.apiUrl) {
@@ -89,8 +109,12 @@ export class CatalogClient {
         url.searchParams.set('q', request.query);
         url.searchParams.set('locale', request.locale ?? browserLocale());
         url.searchParams.set('sort', sort);
+        url.searchParams.set('order', direction);
         url.searchParams.set('limit', String(request.limit ?? 18));
         if (request.platformId) url.searchParams.set('platform', request.platformId);
+        if (request.genre) url.searchParams.set('genre', request.genre);
+        if (request.yearFrom != null) url.searchParams.set('yearFrom', String(request.yearFrom));
+        if (request.yearTo != null) url.searchParams.set('yearTo', String(request.yearTo));
         if (request.cursor) url.searchParams.set('cursor', request.cursor);
         const response = await fetch(url, { signal });
         if (!response.ok) throw new Error(`Search API returned HTTP ${response.status}`);
@@ -100,6 +124,7 @@ export class CatalogClient {
           items: verified,
           ...(parsed.nextCursor ? { nextCursor: parsed.nextCursor } : {}),
           total: parsed.total ?? verified.length,
+          providers: parsed.providers,
         };
       } catch (error) {
         if (signal?.aborted) throw error;
@@ -107,20 +132,22 @@ export class CatalogClient {
     }
 
     const page = await fixtureProvider.search(request, signal);
-    const items = verifiedReleaseResults(sortSearchResults(page.items, sort));
+    const items = verifiedReleaseResults(sortSearchResults(page.items, sort, direction));
     return {
       items,
       ...(page.nextCursor ? { nextCursor: page.nextCursor } : {}),
       total: page.total ?? items.length,
+      providers: page.providers,
     };
   }
 
   async search(
     request: SearchRequest,
     sort: SearchSort,
+    direction: SearchSortDirection = 'desc',
     signal?: AbortSignal,
   ): Promise<SearchResult[]> {
-    return (await this.searchPage(request, sort, signal)).items;
+    return (await this.searchPage(request, sort, direction, signal)).items;
   }
 
   async suggestions(
@@ -215,6 +242,26 @@ export class CatalogClient {
       if (release) return { game: result.game, release };
     }
     return null;
+  }
+
+  async providers(signal?: AbortSignal): Promise<ProviderStatus[]> {
+    if (!this.apiUrl) return [{ id: 'manual', available: true, message: 'Local fixture catalogue' }];
+    try {
+      const response = await fetch(new URL('/v1/providers', this.apiUrl), { signal, cache: 'no-store' });
+      if (!response.ok) throw new Error(`Provider API returned HTTP ${response.status}`);
+      const overview = providerOverviewSchema.parse(await response.json());
+      const statuses = new Map(overview.providers.map((provider) => [provider.id, provider]));
+      for (const id of overview.mediaProviders) {
+        if (!statuses.has(id)) statuses.set(id, { id, available: true, message: 'Media enrichment source' });
+      }
+      for (const id of overview.planned) {
+        if (!statuses.has(id)) statuses.set(id, { id, available: false, message: 'Provider is planned but not configured yet' });
+      }
+      return [...statuses.values()];
+    } catch (error) {
+      if (signal?.aborted) throw error;
+      return [{ id: 'manual', available: true, message: 'Offline fixture fallback' }];
+    }
   }
 
   async cacheStatus(signal?: AbortSignal): Promise<CatalogueCacheStatus | null> {

@@ -39,19 +39,20 @@ export interface ThreeSlotSceneOptions {
 }
 
 const INSERTED_TRANSFORM: RigidTransform = {
-  position: { x: 0, y: 0.08, z: 0.48 },
-  rotation: { x: -0.025, y: 0.035, z: 0 },
+  position: { x: 0, y: -0.18, z: 0.62 },
+  rotation: { x: -0.02, y: 0.02, z: 0 },
   scale: 1,
 };
 
 const EJECTED_TRANSFORM: RigidTransform = {
-  position: { x: 0, y: 2.9, z: 1.2 },
-  rotation: { x: -0.17, y: 0.12, z: -0.035 },
-  scale: 0.96,
+  position: { x: 3.45, y: 3.15, z: 2.45 },
+  rotation: { x: -0.24, y: 0.28, z: -0.42 },
+  scale: 0.82,
 };
 
-const LABEL_WIDTH = 1.72;
-const LABEL_HEIGHT = 2.18;
+const LABEL_WIDTH = 1.12;
+const LABEL_HEIGHT = 1.25;
+const STAGE_ROTATION = { x: -0.055, y: -0.1, z: 0 };
 
 function cloneTransform(transform: RigidTransform): RigidTransform {
   return {
@@ -146,7 +147,7 @@ export class ThreeSlotSceneController implements SlotSceneController {
 
   private buildScene(): void {
     this.scene.background = null;
-    this.camera.position.set(0, 0.35, 8.2);
+    this.camera.position.set(0, 0.35, 7.3);
     this.camera.lookAt(0, 0, 0);
 
     const ambient = new AmbientLight(0xdde7e5, 1.65);
@@ -156,7 +157,7 @@ export class ThreeSlotSceneController implements SlotSceneController {
     rim.position.set(4, 1, 3);
     this.scene.add(ambient, key, rim);
 
-    this.stage.rotation.set(-0.045, -0.08, 0);
+    this.stage.rotation.set(STAGE_ROTATION.x, STAGE_ROTATION.y, STAGE_ROTATION.z);
     this.scene.add(this.stage);
 
     const chassisMaterial = new MeshStandardMaterial({
@@ -165,8 +166,8 @@ export class ThreeSlotSceneController implements SlotSceneController {
       metalness: 0.05,
       flatShading: true,
     });
-    const chassis = new Mesh(new BoxGeometry(3.65, 2.55, 0.68, 1, 1, 1), chassisMaterial);
-    chassis.position.set(0, -0.28, -0.08);
+    const chassis = new Mesh(new BoxGeometry(4.15, 2.65, 0.86, 2, 2, 2), chassisMaterial);
+    chassis.position.set(0, -0.34, -0.12);
     this.stage.add(chassis);
 
     const insetMaterial = new MeshStandardMaterial({
@@ -175,8 +176,8 @@ export class ThreeSlotSceneController implements SlotSceneController {
       metalness: 0,
       flatShading: true,
     });
-    const inset = new Mesh(new BoxGeometry(3.08, 2.05, 0.15, 1, 1, 1), insetMaterial);
-    inset.position.set(0, -0.12, 0.34);
+    const inset = new Mesh(new BoxGeometry(3.45, 2.12, 0.2, 2, 2, 1), insetMaterial);
+    inset.position.set(0, -0.15, 0.42);
     this.stage.add(inset);
 
     const slotMaterial = new MeshStandardMaterial({
@@ -185,8 +186,8 @@ export class ThreeSlotSceneController implements SlotSceneController {
       metalness: 0,
       flatShading: true,
     });
-    const slot = new Mesh(new BoxGeometry(2.5, 0.16, 0.2, 1, 1, 1), slotMaterial);
-    slot.position.set(0, -1.23, 0.42);
+    const slot = new Mesh(new BoxGeometry(1.92, 0.22, 0.34, 2, 1, 1), slotMaterial);
+    slot.position.set(0, -1.18, 0.52);
     this.stage.add(slot);
 
     const accentMaterial = new MeshStandardMaterial({
@@ -195,8 +196,8 @@ export class ThreeSlotSceneController implements SlotSceneController {
       metalness: 0.08,
       flatShading: true,
     });
-    const accent = new Mesh(new BoxGeometry(2.82, 0.09, 0.12, 1, 1, 1), accentMaterial);
-    accent.position.set(0, 1.03, 0.38);
+    const accent = new Mesh(new BoxGeometry(3.24, 0.1, 0.14, 2, 1, 1), accentMaterial);
+    accent.position.set(0, 1.02, 0.47);
     this.stage.add(accent);
 
     const cartridgeMaterial = new MeshStandardMaterial({
@@ -205,19 +206,25 @@ export class ThreeSlotSceneController implements SlotSceneController {
       metalness: 0.03,
       flatShading: true,
     });
-    const body = new Mesh(new BoxGeometry(2.16, 2.72, 0.2, 1, 1, 1), cartridgeMaterial);
+    const body = new Mesh(new BoxGeometry(1.55, 1.9, 0.24, 3, 3, 1), cartridgeMaterial);
+    body.position.y = 0.08;
     this.cartridge.add(body);
 
     const label = new Mesh(
       new PlaneGeometry(LABEL_WIDTH, LABEL_HEIGHT, 1, 1),
       this.labelMaterial,
     );
-    label.position.set(0, 0.08, 0.106);
+    label.position.set(0, 0.12, 0.126);
     this.cartridge.add(label);
 
-    const foot = new Mesh(new BoxGeometry(0.98, 0.09, 0.24, 1, 1, 1), insetMaterial);
-    foot.position.set(0, -1.34, 0.02);
-    this.cartridge.add(foot);
+    const contactMaterial = new MeshStandardMaterial({ color: new Color(0xc8a34a), roughness: 0.48, metalness: 0.32 });
+    const contact = new Mesh(new BoxGeometry(0.92, 0.18, 0.255, 6, 1, 1), contactMaterial);
+    contact.position.set(0, -0.94, 0.01);
+    this.cartridge.add(contact);
+
+    const topRidge = new Mesh(new BoxGeometry(0.72, 0.08, 0.27, 2, 1, 1), insetMaterial);
+    topRidge.position.set(-0.22, 1.03, 0.01);
+    this.cartridge.add(topRidge);
 
     this.cartridge.visible = false;
     this.applyTransform(EJECTED_TRANSFORM);
@@ -271,32 +278,28 @@ export class ThreeSlotSceneController implements SlotSceneController {
     this.state.insertedReleaseId = releaseId;
     this.state.coverUrl = coverUrl;
 
-    try {
-      const texture = await this.loadCoverTexture(coverUrl);
-      if (
-        transitionVersion !== this.transitionVersion ||
-        this.state.insertedReleaseId !== releaseId ||
-        this.destroyed
-      ) {
-        texture.dispose();
-        return;
-      }
-      this.setCoverTexture(texture);
-    } catch {
-      if (
-        transitionVersion !== this.transitionVersion ||
-        this.state.insertedReleaseId !== releaseId ||
-        this.destroyed
-      ) {
-        return;
-      }
-      this.setCoverTexture(this.createPlaceholderTexture(releaseId));
-    }
+    this.setCoverTexture(this.createPlaceholderTexture(releaseId));
+    const textureTask = coverUrl
+      ? this.loadCoverTexture(coverUrl)
+          .then((texture) => {
+            if (
+              transitionVersion !== this.transitionVersion ||
+              this.state.insertedReleaseId !== releaseId ||
+              this.destroyed
+            ) {
+              texture.dispose();
+              return;
+            }
+            this.setCoverTexture(texture);
+          })
+          .catch(() => undefined)
+      : Promise.resolve();
 
     if (transitionVersion !== this.transitionVersion || this.destroyed) return;
     const start = this.state.reducedMotion ? INSERTED_TRANSFORM : EJECTED_TRANSFORM;
     this.applyTransform(start);
-    await this.animate(start, INSERTED_TRANSFORM, this.state.reducedMotion ? 0 : 680, true);
+    void textureTask;
+    await this.animate(start, INSERTED_TRANSFORM, this.state.reducedMotion ? 0 : 920, true);
     if (transitionVersion !== this.transitionVersion || this.destroyed) return;
     this.state.transform = cloneTransform(INSERTED_TRANSFORM);
   }
@@ -404,8 +407,15 @@ export class ThreeSlotSceneController implements SlotSceneController {
           ? easeCartridgeInsertion(linear)
           : 1 - Math.pow(1 - linear, 3);
         const transform = interpolateRigidTransform(start, end, Math.min(1, eased));
-        if (insertion && eased > 1) {
-          transform.position.y -= (eased - 1) * 0.22;
+        if (insertion) {
+          const arc = Math.sin(Math.min(1, linear) * Math.PI);
+          transform.position.z += arc * 1.05;
+          transform.position.y += arc * 0.28;
+          if (eased > 1) transform.position.y -= (eased - 1) * 0.28;
+          const impactPhase = Math.max(0, (linear - 0.72) / 0.28);
+          const impact = Math.sin(impactPhase * Math.PI) * (1 - impactPhase) * 0.1;
+          this.stage.position.y = -impact;
+          this.stage.rotation.set(STAGE_ROTATION.x + impact * 0.12, STAGE_ROTATION.y, impact * 0.08);
         }
         this.applyTransform(transform);
         if (linear < 1 && !this.destroyed) {
@@ -414,6 +424,8 @@ export class ThreeSlotSceneController implements SlotSceneController {
         }
         this.animationFrame = null;
         this.animationResolve = null;
+        this.stage.position.set(0, 0, 0);
+        this.stage.rotation.set(STAGE_ROTATION.x, STAGE_ROTATION.y, STAGE_ROTATION.z);
         this.applyTransform(end);
         resolve();
       };
@@ -426,6 +438,8 @@ export class ThreeSlotSceneController implements SlotSceneController {
       cancelAnimationFrame(this.animationFrame);
     }
     this.animationFrame = null;
+    this.stage.position.set(0, 0, 0);
+    this.stage.rotation.set(STAGE_ROTATION.x, STAGE_ROTATION.y, STAGE_ROTATION.z);
     this.animationResolve?.();
     this.animationResolve = null;
   }

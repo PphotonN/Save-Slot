@@ -9,6 +9,9 @@ export interface SearchRequest {
   query: string;
   locale?: string;
   platformId?: string;
+  genre?: string;
+  yearFrom?: number;
+  yearTo?: number;
   cursor?: string;
   limit?: number;
 }
@@ -34,6 +37,7 @@ export interface ProviderAdapter {
 }
 
 export type SearchSort = 'relevance' | 'title' | 'year' | 'rating' | 'votes';
+export type SearchSortDirection = 'asc' | 'desc';
 
 function normalized(value: string): string {
   return value
@@ -62,34 +66,41 @@ function matches(result: SearchResult, query: string): boolean {
 
 export function filterSearchResults(
   results: SearchResult[],
-  request: Pick<SearchRequest, 'query' | 'platformId'>,
+  request: Pick<SearchRequest, 'query' | 'platformId' | 'genre' | 'yearFrom' | 'yearTo'>,
 ): SearchResult[] {
-  return results.filter(
-    (result) =>
-      matches(result, request.query) &&
-      (!request.platformId ||
-        result.releases.some((release) => release.platform.id === request.platformId)),
-  );
+  const normalizedGenre = request.genre?.trim().toLocaleLowerCase('en-US');
+  return results.filter((result) => {
+    const matchingReleases = result.releases.filter(
+      (release) =>
+        (!request.platformId || release.platform.id === request.platformId) &&
+        (request.yearFrom == null || (release.year ?? -Infinity) >= request.yearFrom) &&
+        (request.yearTo == null || (release.year ?? Infinity) <= request.yearTo),
+    );
+    const matchesGenre =
+      !normalizedGenre ||
+      result.game.genres.some((genre) => genre.toLocaleLowerCase('en-US') === normalizedGenre);
+    return matches(result, request.query) && matchesGenre && matchingReleases.length > 0;
+  });
 }
 
-export function sortSearchResults(results: SearchResult[], sort: SearchSort): SearchResult[] {
+export function sortSearchResults(
+  results: SearchResult[],
+  sort: SearchSort,
+  direction: SearchSortDirection = 'desc',
+): SearchResult[] {
   const copy = [...results];
   const firstRelease = (result: SearchResult) => result.releases[0];
   const firstRating = (result: SearchResult) =>
     firstRelease(result)?.ratings.find((rating) => rating.kind === 'player');
 
   copy.sort((left, right) => {
-    if (sort === 'title') return left.game.title.localeCompare(right.game.title, 'uk');
-    if (sort === 'year') {
-      return (firstRelease(right)?.year ?? 0) - (firstRelease(left)?.year ?? 0);
-    }
-    if (sort === 'rating') {
-      return (firstRating(right)?.score ?? -1) - (firstRating(left)?.score ?? -1);
-    }
-    if (sort === 'votes') {
-      return (firstRating(right)?.votes ?? -1) - (firstRating(left)?.votes ?? -1);
-    }
-    return right.relevance - left.relevance;
+    let comparison = 0;
+    if (sort === 'title') comparison = left.game.title.localeCompare(right.game.title, 'uk');
+    else if (sort === 'year') comparison = (firstRelease(left)?.year ?? 0) - (firstRelease(right)?.year ?? 0);
+    else if (sort === 'rating') comparison = (firstRating(left)?.score ?? -1) - (firstRating(right)?.score ?? -1);
+    else if (sort === 'votes') comparison = (firstRating(left)?.votes ?? -1) - (firstRating(right)?.votes ?? -1);
+    else comparison = left.relevance - right.relevance;
+    return direction === 'asc' ? comparison : -comparison;
   });
   return copy;
 }
