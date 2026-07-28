@@ -42,8 +42,11 @@ describe('RobustLibretroMediaProvider', () => {
       url: exactUrl,
       verified: true,
       kind: 'cover-front',
+      source: expect.objectContaining({ provider: 'libretro', url: exactUrl }),
     });
-    expect(enrichment.providerMessages).toContain('Match source: source-ref.');
+    expect(enrichment.providerMessages).toContain(
+      'Verified Libretro box art after 1 candidate checks.',
+    );
   });
 
   it('falls back from unsupported HEAD to a bounded ranged GET and caches the positive probe', async () => {
@@ -60,10 +63,14 @@ describe('RobustLibretroMediaProvider', () => {
       });
     });
     const provider = new RobustLibretroMediaProvider({ fetchImpl, timeoutMs: 500 });
+    const releaseWithoutKnownCover = {
+      ...release,
+      sourceRefs: release.sourceRefs.filter((reference) => reference.provider !== 'libretro'),
+    };
 
-    const first = await provider.enrich(game, release, 'en');
+    const first = await provider.enrich(game, releaseWithoutKnownCover, 'en');
     const callsAfterFirst = fetchImpl.mock.calls.length;
-    const second = await provider.enrich(game, release, 'en');
+    const second = await provider.enrich(game, releaseWithoutKnownCover, 'en');
 
     expect(first.media[0]?.verified).toBe(true);
     expect(second.media[0]?.url).toBe(first.media[0]?.url);
