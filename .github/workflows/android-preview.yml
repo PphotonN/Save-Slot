@@ -5,6 +5,9 @@ on:
   push:
     branches:
       - android-preview
+  pull_request:
+    branches:
+      - main
 
 permissions:
   contents: read
