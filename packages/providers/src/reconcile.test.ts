@@ -131,13 +131,14 @@ describe('automatic provider reconciliation', () => {
     first.game.sourceRefs = [
       { provider: 'wikidata', id: 'QUNKNOWN-A', url: 'https://www.wikidata.org/wiki/QUNKNOWN-A' },
     ];
-    first.releases = first.releases.map((release) => ({
-      ...release,
-      gameId: first.game.id,
-      year: undefined,
-      releaseDate: undefined,
-      sourceRefs: first.game.sourceRefs,
-    }));
+    first.releases = first.releases.map((release) => {
+      const { year: _year, releaseDate: _releaseDate, ...withoutDate } = release;
+      return {
+        ...withoutDate,
+        gameId: first.game.id,
+        sourceRefs: first.game.sourceRefs,
+      };
+    });
 
     const second = cloneFixture();
     second.game.id = 'game:unknown-b';
@@ -149,13 +150,14 @@ describe('automatic provider reconciliation', () => {
         url: 'https://en.wikipedia.org/wiki/Unknown_Game',
       },
     ];
-    second.releases = second.releases.map((release) => ({
-      ...release,
-      gameId: second.game.id,
-      year: undefined,
-      releaseDate: undefined,
-      sourceRefs: second.game.sourceRefs,
-    }));
+    second.releases = second.releases.map((release) => {
+      const { year: _year, releaseDate: _releaseDate, ...withoutDate } = release;
+      return {
+        ...withoutDate,
+        gameId: second.game.id,
+        sourceRefs: second.game.sourceRefs,
+      };
+    });
 
     expect(assessIdentity(first, second).reason).toBe('insufficient');
     expect(reconcileSearchResults([first, second])).toHaveLength(2);
