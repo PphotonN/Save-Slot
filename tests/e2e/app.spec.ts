@@ -1,5 +1,5 @@
 import { Buffer } from 'node:buffer';
-import { expect, test, type Page } from '@playwright/test';
+import { expect, test, type Locator, type Page } from '@playwright/test';
 
 async function prepareLocalApp(page: Page): Promise<void> {
   await page.addInitScript(() => {
@@ -43,6 +43,30 @@ async function prepareLocalApp(page: Page): Promise<void> {
   await expect(page.locator('.game-card').first()).toBeVisible({ timeout: 20_000 });
 }
 
+async function waitForStableCount(
+  page: Page,
+  locator: Locator,
+  timeoutMs = 20_000,
+  stableMs = 1_000,
+): Promise<number> {
+  const deadline = Date.now() + timeoutMs;
+  let previous = -1;
+  let stableSince = Date.now();
+
+  while (Date.now() < deadline) {
+    const current = await locator.count();
+    if (current !== previous) {
+      previous = current;
+      stableSince = Date.now();
+    } else if (current > 0 && Date.now() - stableSince >= stableMs) {
+      return current;
+    }
+    await page.waitForTimeout(100);
+  }
+
+  throw new Error(`Card count did not stabilize within ${timeoutMs} ms; last count was ${previous}.`);
+}
+
 function visibleNavigation(page: Page) {
   return page.locator('.side-navigation:visible, .mobile-navigation:visible').first();
 }
@@ -79,7 +103,7 @@ test('switches the interface language and keeps it after reload', async ({ page 
 
 test('sorting changes order without changing the visible card set', async ({ page }) => {
   const cards = page.locator('.game-card');
-  const initialCount = await cards.count();
+  const initialCount = await waitForStableCount(page, cards);
   const initialTitles = await page.locator('.game-card h2').allTextContents();
 
   await page.locator('.toolbar-row').getByRole('button', { name: /ФІЛЬТРИ/ }).click();
