@@ -7,7 +7,6 @@ import type { ProviderAdapter, ProviderStatus, SearchPage, SearchRequest } from 
 
 interface WikidataSitelink {
   title?: string;
-  url?: string;
 }
 
 interface WikidataSitelinkEntity {
@@ -25,6 +24,9 @@ interface WikipediaPage {
   extract?: string;
   fullurl?: string;
   missing?: boolean;
+  pageprops?: {
+    wikibase_item?: string;
+  };
 }
 
 interface WikipediaResponse {
@@ -37,7 +39,6 @@ interface SelectedArticle {
   qid: string;
   language: string;
   title: string;
-  url?: string;
 }
 
 const MAX_ARTICLES_PER_REQUEST = 20;
@@ -127,7 +128,6 @@ export class WikidataProvider implements ProviderAdapter {
   ): Promise<SelectedArticle[]> {
     if (!qids.length) return [];
     const language = languageFromLocale(locale);
-    const siteKeys = [...new Set([`${language}wiki`, 'enwiki'])];
     const selected: SelectedArticle[] = [];
 
     for (const batch of chunks(qids, 40)) {
@@ -135,8 +135,7 @@ export class WikidataProvider implements ProviderAdapter {
       url.search = new URLSearchParams({
         action: 'wbgetentities',
         ids: batch.join('|'),
-        props: 'sitelinks/urls',
-        sitefilter: siteKeys.join('|'),
+        props: 'sitelinks',
         format: 'json',
         formatversion: '2',
         origin: '*',
@@ -152,7 +151,6 @@ export class WikidataProvider implements ProviderAdapter {
           qid: entity.id,
           language: sitelink === localized ? language : 'en',
           title: sitelink.title,
-          ...(sitelink.url ? { url: sitelink.url } : {}),
         });
       }
     }
@@ -171,16 +169,17 @@ export class WikidataProvider implements ProviderAdapter {
 
     for (const [language, languageArticles] of groups) {
       for (const batch of chunks(languageArticles, MAX_ARTICLES_PER_REQUEST)) {
-        const byTitle = new Map(batch.map((article) => [article.title, article]));
+        const byQid = new Map(batch.map((article) => [article.qid, article]));
         const url = new URL(`https://${language}.wikipedia.org/w/api.php`);
         url.search = new URLSearchParams({
           action: 'query',
           titles: batch.map((article) => article.title).join('|'),
-          prop: 'extracts|info',
+          prop: 'extracts|info|pageprops',
           exintro: '1',
           explaintext: '1',
           exchars: '1200',
           inprop: 'url',
+          ppprop: 'wikibase_item',
           redirects: '1',
           format: 'json',
           formatversion: '2',
@@ -188,17 +187,22 @@ export class WikidataProvider implements ProviderAdapter {
         }).toString();
         const response = await this.fetchJson<WikipediaResponse>(url, signal);
         for (const page of response.query?.pages ?? []) {
-          if (page.missing || !page.title || !page.extract?.trim()) continue;
-          const article = byTitle.get(page.title) ?? batch.find((candidate) => candidate.title === page.title);
+          const qid = page.pageprops?.wikibase_item;
+          if (page.missing || !qid || !page.extract?.trim()) continue;
+          const article = byQid.get(qid);
           if (!article) continue;
-          byIdentity.set(article.qid, { article, page });
+          byIdentity.set(qid, { article, page });
         }
       }
     }
     return byIdentity;
   }
 
-  private async enrich(page: SearchPage, locale: string | undefined, signal?: AbortSignal): Promise<SearchPage> {
+  private async enrich(
+    page: SearchPage,
+    locale: string | undefined,
+    signal?: AbortSignal,
+  ): Promise<SearchPage> {
     const qids = [...new Set(page.items.map(wikidataId).filter((id): id is string => Boolean(id)))];
     if (!qids.length) return page;
     const started = performance.now();
@@ -212,7 +216,11 @@ export class WikidataProvider implements ProviderAdapter {
       const text = match?.page.extract?.trim();
       if (!match || !text || text.length < 80) return result;
       enrichedCount += 1;
-      const url = match.page.fullurl ?? match.article.url ?? `https://${match.article.language}.wikipedia.org/wiki/${encodeURIComponent(match.article.title.replace(/ /g, '_'))}`;
+      const url =
+        match.page.fullurl ??
+        `https://${match.article.language}.wikipedia.org/wiki/${encodeURIComponent(
+          match.article.title.replace(/ /g, '_'),
+        )}`;
       const source: SourceRef = {
         provider: 'wikipedia',
         id: `${match.article.language}:${match.article.title}`,
@@ -242,7 +250,7 @@ export class WikidataProvider implements ProviderAdapter {
       id: 'wikipedia',
       available: true,
       latencyMs: Math.round(performance.now() - started),
-      message: `${enrichedCount} descriptions matched through exact Wikidata sitelinks.`,
+      message: `${enrichedCount} descriptions matched through exact Wikidata identities.`,
     };
     return { ...page, items, providers: [...page.providers, status] };
   }
