@@ -1,233 +1,238 @@
 # Data-Source Strategy
 
-## Objective
+## Product requirement
 
-Save Slot must achieve broad platform coverage without presenting one provider as the source of truth. Providers are combined according to their strengths, licensing conditions and platform scope.
+Save Slot must be useful immediately after installation without accounts, registrations or API keys.
 
-The Worker returns a normalized Save Slot model and keeps provider-specific limitations outside the UI.
+The default application must provide:
 
-## Provider roles
+- game search and random discovery;
+- platform-specific releases;
+- descriptions and release dates;
+- verified covers where available;
+- screenshots and title screens;
+- clearly sourced player/community signals;
+- personal backlog and collection management;
+- local recommendations;
+- offline access to previously loaded data.
 
-| Provider | Primary role | Strengths | Limitations | Planned status |
+Providers requiring credentials may exist only as optional expert extensions. They must never block startup, hide the catalogue or produce a missing-key error during normal use.
+
+Authentication requirements are not bypassed. Save Slot instead prefers open interfaces, public datasets, local caching and community-maintained corrections.
+
+## Default no-key provider set
+
+| Provider | Default role | Data used | Limits and policy | Status |
 |---|---|---|---|---|
-| IGDB | broad catalogue and discovery | games, platforms, releases, covers, screenshots, ratings and external IDs | requires Twitch application credentials and OAuth; attribution and usage rules must be followed | primary candidate |
-| Wikidata | identity linking and open fallback | multilingual labels, dates, platforms and external identifiers | incomplete release/media coverage; community data can be inconsistent | enabled fallback |
-| Wikipedia / Wikimedia Commons | summaries and supplementary media | multilingual editorial summaries and open media metadata | article images are not guaranteed to be platform-specific covers | fallback only |
-| MobyGames | release-specific retro information and media | detailed platform releases, cover groups and screenshots | API access and media use require subscription/attribution review | optional licensed provider |
-| RAWG | secondary broad catalogue | wide catalogue, store links, screenshots and metadata | API key and attribution required; release precision varies | optional fallback |
-| Libretro thumbnails | retro box art, title screens and screenshots | strong platform-oriented retro media with explicit `Named_Boxarts`, `Named_Snaps` and `Named_Titles` separation | exact name matching; not a complete modern catalogue | enabled retro media provider |
-| Steam | PC store data and player reviews | official PC descriptions, screenshots, store media and review totals | PC scope only; browser access should go through the Worker | enabled PC provider |
-| PCGamingWiki | PC technical and supplementary data | PC-specific release and compatibility information | not a universal catalogue; rate limits and content rules apply | optional PC enrichment |
-| Official platform stores | official descriptions, release links and images | authoritative for a specific store release | APIs and page structures differ; scraping must not be a core dependency | selective enrichment |
+| Wikidata / Wikibase | primary broad identity and search | titles, aliases, dates, platforms, genres, developers, publishers and external IDs | incomplete release and media coverage; community data must be validated | enabled |
+| Wikipedia / Wikimedia Commons | descriptions and open supplementary media | localized summaries, article links and explicitly classified media | article images are not automatically box art | planned enrichment |
+| Steam Store | PC release enrichment | official description, developers, publishers, screenshots and library/store cover | PC/Steam scope only; responses are cached | enabled |
+| Steam User Reviews | PC community rating | positive percentage, review count and review scope | Steam release only; never presented as a universal game score | enabled |
+| Libretro Thumbnails | console, handheld and retro media | `Named_Boxarts`, `Named_Snaps` and `Named_Titles` | exact platform/title matching; incomplete modern coverage | enabled |
+| PCGamingWiki | PC technical enrichment | PC page identity, release data, compatibility and display capabilities | 30 requests/minute; requires a descriptive User-Agent and caching | next provider |
+| VNDB Kana API | visual-novel catalogue enrichment | titles, aliases, releases, developers, platforms, images, ratings and play length | most catalogue endpoints require no authentication; non-commercial and rate-limited | next provider |
+| SteamSpy | optional approximate PC popularity | estimated owners, concurrent users and approximate playtime | estimates are explicitly approximate and unreliable for recent releases | optional no-key signal |
+| Local community catalogue | gap filling and corrections | aliases, release links, platform mapping, source URLs and user-approved overrides | stores metadata and source links, not redistributed copyrighted media | planned |
+| Manual user override | private collection correction | cover URL, notes, edition, region and personal metadata | affects only the user’s local collection | enabled |
+
+## Providers that are not part of the default experience
+
+| Provider | Reason |
+|---|---|
+| IGDB | requires Twitch application credentials and OAuth; optional only |
+| MobyGames | requires API subscription and media/licensing review |
+| RAWG | requires an API key and attribution |
+| Giant Bomb and similar catalogues | require credentials or have unsuitable current terms |
+
+The application may expose these under **Advanced → Optional providers**, but the standard launcher and mobile build must not request or generate credentials.
+
+## Backloggd policy
+
+Backloggd is valuable as a product reference and community signal, but it is not suitable as the foundation of the Save Slot catalogue:
+
+- Backloggd states that its game, platform and company metadata comes from IGDB;
+- therefore querying Backloggd for the same metadata would only add an indirect dependency on IGDB;
+- Backloggd does not publish a documented public API for third-party catalogue access;
+- its terms require users to access the site through the interface it provides.
+
+Save Slot must not build a hidden mass scraper or attempt to bypass protections.
+
+Allowed Backloggd integration:
+
+- direct **Open in Backloggd** link when a reliable match is known;
+- clearly labelled user-triggered lookup only if a permitted stable interface becomes available;
+- import from an official Backloggd export if the service adds one;
+- never copy reviews or user content without permission;
+- never blend a Backloggd score with Steam or other ratings.
+
+Until an official interface or permission exists, Save Slot reproduces the useful backlog workflow locally instead of depending on Backloggd’s private implementation.
+
+## Local-first backlog experience
+
+The personal tool must provide Backloggd-style functionality using local data:
+
+- collection, wishlist, backlog, playing, completed, mastered, paused and dropped states;
+- multiple playthroughs and ownership copies in the future;
+- platform and edition selection;
+- personal score, notes, tags and acquisition information;
+- local statistics by platform, genre, year, ownership and completion status;
+- recommendations calculated from the user’s ratings, completed games, preferred platforms and hidden/dropped titles;
+- JSON export with no account requirement.
+
+These features do not require any remote service.
+
+## Recommended zero-configuration pipeline
+
+### Search and identity
+
+1. Search Wikidata using `wbsearchentities`.
+2. Fetch entity batches using `wbgetentities`.
+3. Normalize platform names and external IDs.
+4. Merge matching VNDB records for visual novels.
+5. Apply local community aliases and corrections.
+6. Fall back to the bundled representative catalogue when all network sources fail.
+
+### Release and media enrichment
+
+1. Use Steam when a verified Steam App ID exists.
+2. Use Libretro for supported platform-specific retro media.
+3. Use explicitly classified Wikimedia media only when it represents the exact game/release.
+4. Use PCGamingWiki for PC release identity and technical data.
+5. Apply the user’s private cover override last.
+
+### Community and popularity signals
+
+Community signals remain separate:
+
+- Steam review percentage and count;
+- VNDB rating and vote count for visual novels;
+- SteamSpy approximate owners/playtime for PC, clearly marked as estimates;
+- personal rating;
+- future permitted Backloggd statistics, if an official interface appears.
+
+No silent universal average is created.
+
+## Offline and local caching
+
+Desktop cache layout:
+
+```text
+.save-slot-data/
+  library.json
+  library.backup.json
+  catalogue/
+    entities/
+    searches/
+    media-index/
+    provider-status.json
+  overrides/
+    local-catalogue.json
+```
+
+Mobile uses the same logical stores through IndexedDB/native app storage.
+
+Rules:
+
+- cached catalogue data is separate from personal collection data;
+- previously opened games remain available offline;
+- stale data is shown with retrieval time rather than discarded;
+- provider failures do not remove cached releases;
+- negative lookups use short TTLs;
+- large media files are not duplicated indefinitely;
+- the user can clear catalogue cache without deleting the library.
 
 ## Source documentation
 
-- IGDB API: https://api-docs.igdb.com/
 - Wikibase API: https://www.mediawiki.org/wiki/Wikibase/API/en
-- MediaWiki CORS: https://www.mediawiki.org/wiki/API:Cross-site_requests
-- MobyGames API: https://www.mobygames.com/info/api/
-- RAWG API: https://rawg.io/apidocs
-- Libretro thumbnails: https://docs.libretro.com/guides/roms-playlists-thumbnails/
+- MediaWiki REST/Action API: https://www.mediawiki.org/wiki/API/en
 - Steam user reviews: https://partner.steamgames.com/doc/store/getreviews
+- Libretro thumbnails: https://docs.libretro.com/guides/roms-playlists-thumbnails/
 - PCGamingWiki API: https://www.pcgamingwiki.com/wiki/PCGamingWiki:API
+- VNDB Kana API: https://api.vndb.org/kana
+- SteamSpy API information: https://steamspy.com/about
+- Backloggd game-data explanation: https://backloggd.com/about/game-data/
+- Backloggd terms: https://backloggd.com/about/terms-of-service/
+- IGDB API authentication: https://api-docs.igdb.com/
 
-Provider terms must be reviewed again before production deployment.
-
-## Recommended v1 provider set
-
-### Required for the first integrated build
-
-1. **IGDB** — broad search, canonical candidates, platforms, release dates, covers and screenshots.
-2. **Wikidata** — external ID linking, multilingual labels and gap filling.
-3. **Libretro** — retro platform box art and screenshots.
-4. **Steam** — PC release information and player-review metrics.
-
-### Optional after the core pipeline is stable
-
-- MobyGames when API/media licensing is approved;
-- RAWG as a secondary search and screenshot provider;
-- PCGamingWiki for PC technical details;
-- official stores for exact release links and descriptions.
+Provider terms and limits must be reviewed again before public distribution.
 
 ## Provider policy
 
 ### No hidden source mixing
 
-Every field has provenance. If two providers disagree, Save Slot does not silently invent a value.
-
-Example:
-
-```json
-{
-  "releaseDate": {
-    "value": "1998-11-21",
-    "source": "igdb",
-    "confidence": "high"
-  }
-}
-```
-
-The public API may flatten high-confidence fields for convenience, but diagnostics retain all candidates.
+Every field and media item retains provenance. When providers disagree, Save Slot keeps candidates and selects a display value according to explicit confidence rules.
 
 ### Provider independence
 
-- Search still works when one provider is unavailable.
-- Steam never limits console visibility.
-- Missing ratings never remove a game.
-- Missing covers never change title identity.
-- A provider timeout does not cancel successful results from other providers.
+- search works when one or more providers are unavailable;
+- Steam never limits console visibility;
+- VNDB enriches visual novels without replacing general catalogue identity blindly;
+- missing ratings never remove a game;
+- missing covers never change title identity;
+- a provider timeout does not cancel successful results from other providers;
+- no credential prompt appears in the default flow.
 
 ### Rate-limit handling
 
 Each adapter defines:
 
 - request timeout;
-- retry policy;
 - concurrency limit;
 - cache TTL;
 - negative-cache TTL;
 - rate-limit response handling;
-- provider health state.
+- provider health state;
+- descriptive User-Agent where required.
 
-The frontend receives provider warnings but does not retry all providers itself.
+The frontend receives provider state but does not retry every source itself.
 
-## Search aggregation
+## Box-art policy
 
-### Step 1: broad candidate search
+A candidate may be displayed as box art only when it is:
 
-Query the enabled broad catalogue providers. Return candidates quickly with minimal data:
+- classified as a cover by the source;
+- linked to the exact game or release;
+- compatible with the selected platform;
+- sufficiently large and usable;
+- not a screenshot, banner, title screen or unrelated article image.
 
-- provider ID;
-- title;
-- year;
-- platforms;
-- basic image;
-- external IDs.
-
-### Step 2: canonical linking
-
-Link candidates using:
-
-1. shared IDs such as Wikidata, Steam, MobyGames or IGDB references;
-2. exact title and year;
-3. exact title and overlapping platforms;
-4. fuzzy title only as a low-confidence suggestion.
-
-### Step 3: release expansion
-
-For the selected game, request platform-specific releases and regions.
-
-### Step 4: media and ratings
-
-Load box art, screenshots and ratings for the selected release. This stage is progressive and must not rebuild already visible search cards.
-
-## Box-art source order
-
-The exact order depends on platform and provider availability.
-
-### Modern console release
-
-1. release-specific cover from a trusted catalogue provider;
-2. official store cover for the exact release;
-3. licensed MobyGames cover group;
-4. platform-specific fallback from another trusted catalogue;
-5. custom user cover for the private collection.
+Source order:
 
 ### Retro release
 
-1. release-specific provider cover;
-2. Libretro `Named_Boxarts` for the exact platform/title;
-3. licensed MobyGames cover group;
-4. verified Wikimedia image only when it is explicitly a cover for that release;
+1. exact platform-specific Libretro `Named_Boxarts`;
+2. explicitly classified Wikimedia release cover;
+3. local community source link;
+4. private user override;
 5. missing-cover placeholder.
 
-### PC release
+### Steam PC release
 
-1. catalogue release cover;
-2. official Steam library/store cover when Steam ID matches;
-3. GOG or other official store media when integration is approved;
-4. PCGamingWiki supplementary media;
-5. missing-cover placeholder.
+1. verified Steam library/store cover;
+2. PCGamingWiki cover when source and identity match;
+3. explicitly classified Wikimedia cover;
+4. private user override;
+5. placeholder.
 
-## Box-art validation
+### Modern console release
 
-A candidate receives a quality score based on:
+1. exact open-source/provider cover with verified platform identity;
+2. explicitly classified Wikimedia release cover;
+3. local community source link;
+4. private user override;
+5. placeholder.
 
-- provider classification as front cover;
-- exact platform match;
-- exact region match;
-- sufficient dimensions;
-- expected aspect ratio range;
-- language preference;
-- absence of watermarks where possible;
-- source reliability.
-
-A screenshot, logo, title screen or banner is rejected as box art even if portrait-shaped.
-
-## Screenshots
-
-Screenshot providers are ranked separately from cover providers.
-
-Requirements:
-
-- screenshot is tied to the game or release;
-- source and platform are retained;
-- duplicates are removed by perceptual or URL identity where practical;
-- the gallery avoids mixing screenshots from materially different ports without a platform label;
-- thumbnails load first and full images load on demand.
-
-## Ratings
-
-Ratings are not merged into one number by default.
-
-Possible panels:
-
-- IGDB community rating;
-- Steam user reviews for PC;
-- MobyGames player score when licensed;
-- critic score as secondary information;
-- personal rating from the collection.
-
-Every rating displays:
-
-- source;
-- score and scale;
-- vote count where available;
-- platform scope;
-- retrieval time in diagnostics.
-
-## Descriptions
-
-Preferred order:
-
-1. localized official description for the selected release;
-2. provider editorial summary;
-3. Wikipedia summary;
-4. translated description;
-5. explicit missing-description state.
-
-The original text and source remain available after translation.
-
-## Licensing and attribution checklist
-
-Before enabling a provider in production:
-
-- verify current API terms;
-- verify commercial/non-commercial restrictions;
-- verify image hotlinking or caching rules;
-- verify attribution text and link requirements;
-- verify retention limits;
-- record the decision in `docs/DECISIONS.md`;
-- add automated attribution metadata to normalized responses.
+Modern console coverage will be less complete without credentialed catalogues, so local corrections and transparent placeholders are preferable to wrong promotional images.
 
 ## Provider acceptance test
 
-A provider adapter is ready only when it passes:
+A no-key provider is ready only when it passes:
 
 - schema validation;
-- timeout and retry tests;
-- rate-limit simulation;
-- empty-result handling;
-- malformed-response handling;
+- no-auth fresh-install test;
+- timeout and rate-limit tests;
+- empty and malformed response handling;
 - source attribution checks;
-- representative tests for PC, modern console, handheld and retro titles.
+- cache/offline restoration tests;
+- representative PC, console, handheld and retro cases;
+- proof that no secret is bundled into frontend or mobile output.
