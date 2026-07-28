@@ -106,6 +106,36 @@ test('waits until an unavailable service starts', async () => {
   }
 });
 
+test('allows transient HTTP responses while a service initializes', async () => {
+  let requests = 0;
+  const server = createServer((_request, response) => {
+    requests += 1;
+    response.writeHead(200, { 'Content-Type': 'application/json' });
+    response.end(
+      JSON.stringify({ service: requests < 3 ? 'starting' : 'save-slot-web', status: 'ok' }),
+    );
+  });
+  await new Promise((resolve, reject) => {
+    server.once('error', reject);
+    server.listen(0, '127.0.0.1', resolve);
+  });
+  const address = server.address();
+  if (!address || typeof address === 'string') throw new Error('Expected a TCP server address.');
+
+  try {
+    const result = await waitForService({
+      url: `http://127.0.0.1:${address.port}/health.json`,
+      expectedService: 'save-slot-web',
+      timeoutMs: 2_000,
+      intervalMs: 25,
+    });
+    assert.equal(result.state, 'ready');
+    assert.ok(requests >= 3);
+  } finally {
+    await closeServer(server);
+  }
+});
+
 test('detects free and occupied ports', async () => {
   const server = createServer((_request, response) => response.end('ok'));
   await new Promise((resolve, reject) => {
