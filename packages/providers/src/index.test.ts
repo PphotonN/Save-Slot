@@ -36,22 +36,38 @@ describe('provider search behavior', () => {
   });
 
   it('filters by genre and inclusive year range', () => {
-    const sample = fixtureSearchResults.find((result) => result.game.genres.length && result.releases.some((release) => release.year));
+    const sample = fixtureSearchResults.find(
+      (result) => result.game.genres.length && result.releases.some((release) => release.year),
+    );
     expect(sample).toBeDefined();
     const genre = sample!.game.genres[0]!;
     const year = sample!.releases.find((release) => release.year)?.year;
     expect(year).toBeDefined();
-    const filtered = filterSearchResults(fixtureSearchResults, { query: '', genre, yearFrom: year, yearTo: year });
+    const filtered = filterSearchResults(fixtureSearchResults, {
+      query: '',
+      genre,
+      yearFrom: year,
+      yearTo: year,
+    });
     expect(filtered.length).toBeGreaterThan(0);
     expect(filtered.every((result) => result.game.genres.includes(genre))).toBe(true);
-    expect(filtered.every((result) => result.releases.some((release) => release.year === year))).toBe(true);
+    expect(
+      filtered.every((result) => result.releases.some((release) => release.year === year)),
+    ).toBe(true);
   });
 
   it('supports ascending and descending sort direction', () => {
     const visible = filterSearchResults(fixtureSearchResults, { query: '' });
-    const ascending = sortSearchResults(visible, 'title', 'asc').map((item) => item.game.title);
-    const descending = sortSearchResults(visible, 'title', 'desc').map((item) => item.game.title);
+    const ascending = sortSearchResults(visible, 'title', 'asc').map(
+      (item) => item.game.title,
+    );
+    const descending = sortSearchResults(visible, 'title', 'desc').map(
+      (item) => item.game.title,
+    );
     expect(descending).toEqual([...ascending].reverse());
+    expect(sortSearchResults(visible, 'title')).toEqual(
+      sortSearchResults(visible, 'title', 'desc'),
+    );
   });
 
   it('returns distinct fixture pages with an accurate total', async () => {
