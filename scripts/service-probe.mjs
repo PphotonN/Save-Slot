@@ -1,5 +1,6 @@
 import { createServer } from 'node:net';
 import { resolve } from 'node:path';
+import { pathToFileURL } from 'node:url';
 
 const EXIT_UNAVAILABLE = 1;
 const EXIT_MISMATCH = 2;
@@ -140,7 +141,10 @@ function required(value, name) {
 }
 
 function positiveInteger(value, name, fallback) {
-  if (value === undefined) return fallback;
+  if (value === undefined) {
+    if (fallback !== undefined) return fallback;
+    throw new Error(`Missing --${name}.`);
+  }
   const parsed = Number.parseInt(String(value), 10);
   if (!Number.isInteger(parsed) || parsed <= 0) throw new Error(`Invalid --${name}: ${value}`);
   return parsed;
@@ -167,7 +171,11 @@ async function runCli() {
     url: required(options.url, 'url'),
     expectedService: required(options.service, 'service'),
     expectedProjectRoot: options.projectRoot,
-    timeoutMs: positiveInteger(options.timeoutMs, 'timeout-ms', options.command === 'wait' ? 30_000 : 1_500),
+    timeoutMs: positiveInteger(
+      options.timeoutMs,
+      'timeout-ms',
+      options.command === 'wait' ? 30_000 : 1_500,
+    ),
   };
   const result =
     options.command === 'wait'
@@ -184,7 +192,7 @@ async function runCli() {
     result.state === 'ready' ? 0 : result.state === 'mismatch' ? EXIT_MISMATCH : EXIT_UNAVAILABLE;
 }
 
-if (process.argv[1] && import.meta.url === new URL(`file://${resolve(process.argv[1])}`).href) {
+if (process.argv[1] && import.meta.url === pathToFileURL(resolve(process.argv[1])).href) {
   runCli().catch((error) => {
     console.error(`[ERROR] ${error instanceof Error ? error.message : String(error)}`);
     process.exitCode = 64;
