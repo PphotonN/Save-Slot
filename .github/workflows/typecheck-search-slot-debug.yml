@@ -1,0 +1,45 @@
+name: Search Slot Typecheck Diagnostics
+
+on:
+  pull_request:
+    branches:
+      - app-v1
+
+permissions:
+  contents: read
+
+jobs:
+  typecheck-log:
+    if: github.event.pull_request.head.ref == 'feature/search-slot-ux'
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v6
+      - name: Install pnpm
+        uses: pnpm/action-setup@v6
+      - name: Set up Node.js
+        uses: actions/setup-node@v6
+        with:
+          node-version: 24.18.0
+          package-manager-cache: false
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile
+      - name: Capture typecheck
+        id: check
+        continue-on-error: true
+        shell: bash
+        run: |
+          set -o pipefail
+          pnpm check 2>&1 | tee typecheck-search-slot.log
+      - name: Upload typecheck log
+        if: always()
+        uses: actions/upload-artifact@v6
+        with:
+          name: search-slot-typecheck-log
+          path: typecheck-search-slot.log
+          if-no-files-found: error
+          retention-days: 1
+      - name: Fail when typecheck failed
+        if: steps.check.outcome != 'success'
+        run: exit 1
