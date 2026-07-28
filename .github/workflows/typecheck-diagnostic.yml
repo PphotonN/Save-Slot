@@ -10,7 +10,7 @@ permissions:
 jobs:
   diagnostic:
     runs-on: ubuntu-latest
-    timeout-minutes: 20
+    timeout-minutes: 35
     steps:
       - name: Checkout
         uses: actions/checkout@v6
@@ -49,6 +49,20 @@ jobs:
           echo "status=$status" >> "$GITHUB_OUTPUT"
           exit 0
 
+      - name: Install Chromium and system dependencies
+        run: pnpm exec playwright install --with-deps chromium
+
+      - name: Capture acceptance output
+        id: acceptance
+        shell: bash
+        run: |
+          set +e
+          pnpm test:e2e > e2e.log 2>&1
+          status=$?
+          cat e2e.log
+          echo "status=$status" >> "$GITHUB_OUTPUT"
+          exit 0
+
       - name: Upload diagnostic output
         uses: actions/upload-artifact@v6
         with:
@@ -56,9 +70,12 @@ jobs:
           path: |
             typecheck.log
             test.log
-          if-no-files-found: error
+            e2e.log
+            playwright-report
+            test-results
+          if-no-files-found: warn
           retention-days: 1
 
       - name: Fail when verification failed
-        if: steps.typecheck.outputs.status != '0' || steps.tests.outputs.status != '0'
+        if: steps.typecheck.outputs.status != '0' || steps.tests.outputs.status != '0' || steps.acceptance.outputs.status != '0'
         run: exit 1
