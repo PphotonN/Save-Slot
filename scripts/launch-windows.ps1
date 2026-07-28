@@ -61,11 +61,7 @@ function Start-ServiceTerminal([pscustomobject]$Service) {
     $Service.Command
   ) -join ' '
 
-  $process = Start-Process \
-    -FilePath $env:ComSpec \
-    -ArgumentList $commandLine \
-    -WorkingDirectory $ProjectRoot \
-    -PassThru
+  $process = Start-Process -FilePath $env:ComSpec -ArgumentList $commandLine -WorkingDirectory $ProjectRoot -PassThru
   $startedProcesses.Add($process)
   return $process
 }
@@ -161,7 +157,7 @@ try {
     Ensure-Service $service
   }
 
-  Start-Process 'http://127.0.0.1:5173'
+  Start-Process -FilePath 'http://127.0.0.1:5173'
   Write-Host ''
   Write-Host '[READY] Save Slot launched successfully.' -ForegroundColor Green
   Write-Host 'Collection file: .save-slot-data\library.json'
