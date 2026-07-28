@@ -683,6 +683,21 @@
     }
   }
 
+  async function refreshCatalogueAfterCacheClear(): Promise<void> {
+    activeRequest?.abort();
+    detailRequest?.abort();
+    suggestionRequest?.abort();
+    closeSuggestions();
+    results = [];
+    nextCursor = null;
+    totalSearchResults = 0;
+    providerStatuses = [];
+    selected = null;
+    selectionVersion += 1;
+    if (query.trim()) await runSearch();
+    else await loadDiscovery();
+  }
+
   function changeLocale(value: SupportedLocale): void {
     locale = value;
     localStorage.setItem('save-slot-locale', value);
@@ -953,7 +968,7 @@
               <input bind:this={importInput} accept="application/json,.json" hidden onchange={importCollection} type="file" />
             </div>
           </div>
-          <ApiCacheStatus />
+          <ApiCacheStatus {locale} onCleared={refreshCatalogueAfterCacheClear} />
         </div>
       </section>
     {/if}

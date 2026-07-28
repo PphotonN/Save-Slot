@@ -1,30 +1,43 @@
 <script lang="ts">
   import { onMount } from 'svelte';
   import { detectLocale, type SupportedLocale } from '@save-slot/i18n';
-  import { CatalogClient, type CatalogueCacheStatus } from '$lib/catalog-client';
+  import {
+    CatalogClient,
+    type CatalogueCacheClearResult,
+    type CatalogueCacheStatus,
+  } from '$lib/catalog-client';
 
   interface Props {
     locale?: SupportedLocale;
+    onCleared?: () => void | Promise<void>;
   }
 
   const client = new CatalogClient();
-  let { locale: providedLocale }: Props = $props();
+  let { locale: providedLocale, onCleared }: Props = $props();
   let documentLocale = $state<SupportedLocale>('uk');
   let locale = $derived(providedLocale ?? documentLocale);
   let status = $state<CatalogueCacheStatus | null>(null);
   let loading = $state(false);
-  let messageKind = $state<'idle' | 'checking' | 'active' | 'unavailable' | 'error'>('idle');
+  let clearing = $state(false);
+  let lastClear = $state<CatalogueCacheClearResult | null>(null);
+  let messageKind = $state<
+    'idle' | 'checking' | 'active' | 'clearing' | 'cleared' | 'unavailable' | 'error'
+  >('idle');
   let rawError = $state('');
+  let busy = $derived(loading || clearing);
 
   const copy = {
     uk: {
       idle: 'Стан кешу ще не перевірено.',
       checking: 'Перевіряю кеш каталогу…',
       active: 'Активні рівні: {backends}.',
+      clearing: 'Очищаю кеш каталогу та оновлюю джерела…',
+      cleared: 'Кеш очищено: {count} записів. Джерела й каталог оновлено.',
       unavailable: 'API кешу недоступний. Застосунок продовжить працювати через локальні fallback-дані.',
-      error: 'Не вдалося перевірити кеш каталогу.',
+      error: 'Не вдалося виконати операцію з кешем каталогу.',
       title: 'Кеш онлайн-каталогу',
-      refresh: 'Оновити',
+      refresh: 'Оновити стан',
+      clear: 'Очистити кеш',
       memory: 'У пам’яті',
       hits: 'Влучання',
       misses: 'Промахи',
@@ -44,10 +57,13 @@
       idle: 'Cache status has not been checked yet.',
       checking: 'Checking catalogue cache…',
       active: 'Active layers: {backends}.',
+      clearing: 'Clearing catalogue cache and refreshing sources…',
+      cleared: 'Cache cleared: {count} entries. Sources and catalogue refreshed.',
       unavailable: 'The cache API is unavailable. The app will continue with local fallback data.',
-      error: 'Could not check the catalogue cache.',
+      error: 'Could not complete the catalogue cache operation.',
       title: 'Online catalogue cache',
-      refresh: 'Refresh',
+      refresh: 'Refresh status',
+      clear: 'Clear cache',
       memory: 'In memory',
       hits: 'Hits',
       misses: 'Misses',
@@ -71,6 +87,10 @@
     if (messageKind === 'active' && status) {
       return text.active.replace('{backends}', status.backends.join(' → '));
     }
+    if (messageKind === 'cleared' && lastClear) {
+      const count = lastClear.memoryEntries + lastClear.cacheApiEntries + lastClear.kvEntries;
+      return text.cleared.replace('{count}', Intl.NumberFormat(locale).format(count));
+    }
     return text[messageKind];
   });
 
@@ -83,6 +103,7 @@
   async function refresh(): Promise<void> {
     loading = true;
     rawError = '';
+    lastClear = null;
     messageKind = 'checking';
     try {
       status = await client.cacheStatus();
@@ -93,6 +114,30 @@
       messageKind = 'error';
     } finally {
       loading = false;
+    }
+  }
+
+  async function clearCache(): Promise<void> {
+    clearing = true;
+    rawError = '';
+    lastClear = null;
+    messageKind = 'clearing';
+    try {
+      const result = await client.clearCache();
+      if (!result) {
+        status = null;
+        messageKind = 'unavailable';
+        return;
+      }
+      lastClear = result;
+      await onCleared?.();
+      status = await client.cacheStatus();
+      messageKind = 'cleared';
+    } catch (error) {
+      rawError = error instanceof Error ? error.message : '';
+      messageKind = 'error';
+    } finally {
+      clearing = false;
     }
   }
 
@@ -112,11 +157,16 @@
   <header>
     <div>
       <span>{text.title.toLocaleUpperCase(locale)}</span>
-      <p>{message}</p>
+      <p aria-live="polite">{message}</p>
     </div>
-    <button disabled={loading} onclick={() => void refresh()} type="button">
-      {loading ? '…' : text.refresh.toLocaleUpperCase(locale)}
-    </button>
+    <div class="header-actions">
+      <button disabled={busy} onclick={() => void refresh()} type="button">
+        {loading ? '…' : text.refresh.toLocaleUpperCase(locale)}
+      </button>
+      <button class="clear-button" disabled={busy} onclick={() => void clearCache()} type="button">
+        {clearing ? '…' : text.clear.toLocaleUpperCase(locale)}
+      </button>
+    </div>
   </header>
 
   {#if status}
@@ -165,6 +215,13 @@
     line-height: 1.45;
   }
 
+  .header-actions {
+    display: flex;
+    flex-wrap: wrap;
+    justify-content: flex-end;
+    gap: 0.45rem;
+  }
+
   button {
     min-height: 38px;
     padding: 0.55rem 0.7rem;
@@ -172,6 +229,16 @@
     font: 0.4rem/1.2 var(--pixel-font);
     background: #090d0e;
     border: 1px solid var(--line);
+  }
+
+  button:disabled {
+    cursor: wait;
+    opacity: 0.55;
+  }
+
+  .clear-button {
+    color: #ffcf88;
+    border-color: rgba(255, 166, 64, 0.55);
   }
 
   .metrics,
@@ -214,8 +281,8 @@
       display: grid;
     }
 
-    header button {
-      justify-self: start;
+    .header-actions {
+      justify-content: flex-start;
     }
 
     .metrics,

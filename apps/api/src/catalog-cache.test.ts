@@ -22,6 +22,13 @@ class FakeBinding implements CatalogCacheBinding {
   async delete(key: string): Promise<void> {
     this.values.delete(key);
   }
+
+  async list(options: { prefix?: string; cursor?: string } = {}) {
+    const keys = [...this.values.keys()]
+      .filter((key) => !options.prefix || key.startsWith(options.prefix))
+      .map((name) => ({ name }));
+    return { keys, list_complete: true };
+  }
 }
 
 class TestContext implements CacheExecutionContext {
@@ -78,5 +85,25 @@ describe('CatalogCache', () => {
 
     resetCatalogCacheForTests();
     await expect(new CatalogCache({ CATALOG_CACHE: binding }).get('game:delete')).resolves.toBeUndefined();
+  });
+
+  it('clears only matching catalogue keys and resets cache statistics', async () => {
+    const binding = new FakeBinding();
+    const context = new TestContext();
+    const cache = new CatalogCache({ CATALOG_CACHE: binding }, context);
+
+    await cache.put('catalog:v3:search:test', { id: 1 }, 300);
+    await cache.put('other:keep', { id: 2 }, 300);
+    await context.flush();
+    await cache.get('catalog:v3:search:test');
+
+    const cleared = await cache.clear('catalog:v3:');
+
+    expect(cleared.memoryEntries).toBe(1);
+    expect(cleared.kvEntries).toBe(1);
+    expect(cleared.errors).toBe(0);
+    expect(binding.values.has('catalog:v3:search:test')).toBe(false);
+    expect(binding.values.has('other:keep')).toBe(true);
+    expect(cache.stats()).toMatchObject({ memoryEntries: 1, hits: 0, misses: 0, writes: 0 });
   });
 });

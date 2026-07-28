@@ -62,6 +62,30 @@ describe('Save Slot API detail cache', () => {
     expect(cacheStatus.backends).toEqual(expect.arrayContaining(['memory']));
   });
 
+  it('clears catalogue cache entries through the settings endpoint', async () => {
+    const context = new TestContext();
+    const result = fixtureSearchResults[0]!;
+
+    await worker.fetch(
+      new Request(`http://localhost/v1/games/${encodeURIComponent(result.game.id)}`),
+      {},
+      context,
+    );
+
+    const response = await worker.fetch(
+      new Request('http://localhost/v1/cache', { method: 'DELETE' }),
+      {},
+      context,
+    );
+    expect(response.status).toBe(200);
+    expect(response.headers.get('Cache-Control')).toBe('no-store');
+    const payload = requireRecord(await response.json(), 'Cache clear response');
+    expect(payload.cleared).toBe(true);
+    expect(Number(payload.memoryEntries)).toBeGreaterThan(0);
+    const stats = requireRecord(payload.stats, 'Cache statistics');
+    expect(stats.memoryEntries).toBe(0);
+  });
+
   it('allows public read access from Capacitor and browser origins when configured with wildcard CORS', async () => {
     const context = new TestContext();
     for (const origin of ['https://localhost', 'capacitor://localhost', 'https://example.com']) {
@@ -92,6 +116,6 @@ describe('Save Slot API detail cache', () => {
     );
     expect(response.status).toBe(204);
     expect(response.headers.get('Access-Control-Allow-Origin')).toBe('*');
-    expect(response.headers.get('Access-Control-Allow-Methods')).toContain('GET');
+    expect(response.headers.get('Access-Control-Allow-Methods')).toContain('DELETE');
   });
 });

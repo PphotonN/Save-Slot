@@ -81,7 +81,7 @@ function corsHeaders(request: Request, env: Env): Record<string, string> {
   const allowed = env.ALLOWED_ORIGIN ?? 'http://localhost:5173';
   return {
     'Access-Control-Allow-Origin': origin === allowed ? origin : allowed,
-    'Access-Control-Allow-Methods': 'GET,OPTIONS',
+    'Access-Control-Allow-Methods': 'GET,DELETE,OPTIONS',
     'Access-Control-Allow-Headers': 'Content-Type',
     'Access-Control-Max-Age': '86400',
     Vary: 'Origin',
@@ -93,7 +93,7 @@ function json(request: Request, env: Env, value: unknown, status = 200): Respons
     status,
     headers: {
       'Content-Type': 'application/json; charset=utf-8',
-      'Cache-Control': status === 200 ? 'public, max-age=60, stale-while-revalidate=300' : 'no-store',
+      'Cache-Control': 'no-store',
       ...corsHeaders(request, env),
     },
   });
@@ -463,12 +463,22 @@ export default {
     if (request.method === 'OPTIONS') {
       return new Response(null, { status: 204, headers: corsHeaders(request, env) });
     }
+    const url = new URL(request.url);
+    const cache = new CatalogCache(env, context);
+
+    if (url.pathname === '/v1/cache' && request.method === 'DELETE') {
+      const cleared = await cache.clear(`catalog:${CACHE_SCHEMA_VERSION}:`);
+      return json(request, env, {
+        cleared: true,
+        ...cleared,
+        backends: cache.backendSummary(),
+        stats: cache.stats(),
+      });
+    }
+
     if (request.method !== 'GET') {
       return json(request, env, { error: 'method_not_allowed' }, 405);
     }
-
-    const url = new URL(request.url);
-    const cache = new CatalogCache(env, context);
 
     if (url.pathname === '/health') {
       return json(request, env, {

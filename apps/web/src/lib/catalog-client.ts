@@ -50,6 +50,23 @@ const suggestionResponseSchema = z.object({
   items: z.array(searchSuggestionSchema),
 });
 
+const catalogueCacheClearResultSchema = z.object({
+  cleared: z.literal(true),
+  memoryEntries: z.number().int().nonnegative(),
+  cacheApiEntries: z.number().int().nonnegative(),
+  kvEntries: z.number().int().nonnegative(),
+  errors: z.number().int().nonnegative(),
+  backends: z.array(z.string()),
+  stats: z.object({
+    memoryEntries: z.number().int().nonnegative(),
+    hits: z.number().int().nonnegative(),
+    misses: z.number().int().nonnegative(),
+    writes: z.number().int().nonnegative(),
+    kvEnabled: z.boolean(),
+    cacheApiEnabled: z.boolean(),
+  }),
+});
+
 const catalogueCacheStatusSchema = z.object({
   schema: z.string(),
   searchTtlSeconds: z.number().int().positive(),
@@ -68,6 +85,7 @@ const catalogueCacheStatusSchema = z.object({
 });
 
 export type SearchSuggestion = z.infer<typeof searchSuggestionSchema>;
+export type CatalogueCacheClearResult = z.infer<typeof catalogueCacheClearResultSchema>;
 export type CatalogueCacheStatus = z.infer<typeof catalogueCacheStatusSchema>;
 
 export interface CatalogSearchPage {
@@ -116,7 +134,7 @@ export class CatalogClient {
         if (request.yearFrom != null) url.searchParams.set('yearFrom', String(request.yearFrom));
         if (request.yearTo != null) url.searchParams.set('yearTo', String(request.yearTo));
         if (request.cursor) url.searchParams.set('cursor', request.cursor);
-        const response = await fetch(url, { signal });
+        const response = await fetch(url, { signal, cache: 'no-store' });
         if (!response.ok) throw new Error(`Search API returned HTTP ${response.status}`);
         const parsed = searchResponseSchema.parse(await response.json());
         const verified = verifiedReleaseResults(parsed.items);
@@ -164,7 +182,7 @@ export class CatalogClient {
         url.searchParams.set('q', normalized);
         url.searchParams.set('locale', locale);
         url.searchParams.set('limit', String(limit));
-        const response = await fetch(url, { signal });
+        const response = await fetch(url, { signal, cache: 'no-store' });
         if (!response.ok) throw new Error(`Suggestions API returned HTTP ${response.status}`);
         return suggestionResponseSchema.parse(await response.json()).items;
       } catch (error) {
@@ -189,7 +207,7 @@ export class CatalogClient {
         const url = new URL('/v1/discovery', this.apiUrl);
         url.searchParams.set('limit', String(limit));
         url.searchParams.set('locale', browserLocale());
-        const response = await fetch(url, { signal });
+        const response = await fetch(url, { signal, cache: 'no-store' });
         if (!response.ok) throw new Error(`Discovery API returned HTTP ${response.status}`);
         const verified = verifiedReleaseResults(searchResponseSchema.parse(await response.json()).items);
         if (verified.length) return verified;
@@ -262,6 +280,17 @@ export class CatalogClient {
       if (signal?.aborted) throw error;
       return [{ id: 'manual', available: true, message: 'Offline fixture fallback' }];
     }
+  }
+
+  async clearCache(signal?: AbortSignal): Promise<CatalogueCacheClearResult | null> {
+    if (!this.apiUrl) return null;
+    const response = await fetch(new URL('/v1/cache', this.apiUrl), {
+      method: 'DELETE',
+      signal,
+      cache: 'no-store',
+    });
+    if (!response.ok) throw new Error(`Cache clear API returned HTTP ${response.status}`);
+    return catalogueCacheClearResultSchema.parse(await response.json());
   }
 
   async cacheStatus(signal?: AbortSignal): Promise<CatalogueCacheStatus | null> {
