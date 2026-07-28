@@ -3,6 +3,12 @@ import { createServer } from 'node:http';
 import test from 'node:test';
 import { isPortFree, probeService, waitForService } from '../scripts/service-probe.mjs';
 
+async function closeServer(server) {
+  await new Promise((resolve, reject) =>
+    server.close((error) => (error ? reject(error) : resolve())),
+  );
+}
+
 async function withJsonServer(payload, callback) {
   const server = createServer((_request, response) => {
     response.writeHead(200, { 'Content-Type': 'application/json' });
@@ -23,9 +29,7 @@ async function withJsonServer(payload, callback) {
       url: `http://127.0.0.1:${address.port}/health`,
     });
   } finally {
-    await new Promise((resolve, reject) =>
-      server.close((error) => (error ? reject(error) : resolve())),
-    );
+    await closeServer(server);
   }
 }
 
@@ -65,34 +69,40 @@ test('rejects a wrong service or another project folder', async () => {
   );
 });
 
-test('waits until a delayed service becomes ready', async () => {
-  let ready = false;
+test('waits until an unavailable service starts', async () => {
+  const reservation = createServer();
+  await new Promise((resolve, reject) => {
+    reservation.once('error', reject);
+    reservation.listen(0, '127.0.0.1', resolve);
+  });
+  const address = reservation.address();
+  if (!address || typeof address === 'string') throw new Error('Expected a TCP server address.');
+  const port = address.port;
+  await closeServer(reservation);
+
   const server = createServer((_request, response) => {
     response.writeHead(200, { 'Content-Type': 'application/json' });
-    response.end(JSON.stringify({ service: ready ? 'save-slot-api' : 'starting' }));
+    response.end(JSON.stringify({ service: 'save-slot-api', status: 'ok' }));
   });
-  await new Promise((resolve, reject) => {
-    server.once('error', reject);
-    server.listen(0, '127.0.0.1', resolve);
+
+  const startPromise = new Promise((resolve, reject) => {
+    setTimeout(() => {
+      server.once('error', reject);
+      server.listen(port, '127.0.0.1', resolve);
+    }, 150);
   });
-  const address = server.address();
-  if (!address || typeof address === 'string') throw new Error('Expected a TCP server address.');
-  setTimeout(() => {
-    ready = true;
-  }, 120);
 
   try {
     const result = await waitForService({
-      url: `http://127.0.0.1:${address.port}/health`,
+      url: `http://127.0.0.1:${port}/health`,
       expectedService: 'save-slot-api',
       timeoutMs: 2_000,
       intervalMs: 50,
     });
-    assert.equal(result.state, 'mismatch');
+    await startPromise;
+    assert.equal(result.state, 'ready');
   } finally {
-    await new Promise((resolve, reject) =>
-      server.close((error) => (error ? reject(error) : resolve())),
-    );
+    if (server.listening) await closeServer(server);
   }
 });
 
@@ -108,9 +118,7 @@ test('detects free and occupied ports', async () => {
   try {
     assert.equal(await isPortFree({ host: '127.0.0.1', port: address.port }), false);
   } finally {
-    await new Promise((resolve, reject) =>
-      server.close((error) => (error ? reject(error) : resolve())),
-    );
+    await closeServer(server);
   }
 
   assert.equal(await isPortFree({ host: '127.0.0.1', port: address.port }), true);
