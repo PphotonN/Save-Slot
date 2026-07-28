@@ -1,4 +1,4 @@
-const CACHE_NAME = "save-slot-shell-v15";
+const CACHE_NAME = "save-slot-shell-v16";
 const DATA_CACHE_NAME = "save-slot-online-v1";
 const APP_SHELL = ["./", "./index.html", "./styles-v3.css", "./styles-v6.css", "./styles-v8.css", "./styles-v10.css", "./app-v3-core.js", "./app-v3-wikidata.js", "./app-v3-steam.js", "./app-v3-results.js", "./app-v3-manager.js", "./app-v3-init.js", "./app-v4.js", "./app-v5.js", "./app-v6.js", "./app-v7.js", "./app-v8.js", "./app-v9.js", "./app-v10.js", "./app-v11.js", "./app-v12.js", "./app-v13.js", "./manifest.webmanifest", "./assets/icon.svg"];
 
