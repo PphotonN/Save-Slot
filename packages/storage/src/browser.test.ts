@@ -1,10 +1,70 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
-import { createCollectionRepository, createDefaultList } from './browser';
+import {
+  createCollectionRepository,
+  createDefaultList,
+  shouldUseProjectFileMirror,
+} from './browser';
 
 afterEach(() => {
   vi.useRealTimers();
   vi.restoreAllMocks();
   vi.unstubAllGlobals();
+});
+
+function browserWindow(
+  dispatchEvent: ReturnType<typeof vi.fn>,
+  options: {
+    hostname?: string;
+    protocol?: string;
+    standalone?: boolean;
+    native?: boolean;
+  } = {},
+) {
+  return {
+    dispatchEvent,
+    location: {
+      hostname: options.hostname ?? 'localhost',
+      protocol: options.protocol ?? 'http:',
+    },
+    matchMedia: vi.fn().mockReturnValue({ matches: options.standalone ?? false }),
+    navigator: {},
+    Capacitor: options.native
+      ? {
+          isNativePlatform: () => true,
+          getPlatform: () => 'android',
+        }
+      : undefined,
+  };
+}
+
+describe('project file mirror activation', () => {
+  it.each([
+    ['localhost', 'http:'],
+    ['LOCALHOST', 'https:'],
+    ['127.0.0.1', 'http:'],
+    ['::1', 'http:'],
+    ['[::1]', 'https:'],
+  ])('allows launcher origin %s', (hostname, protocol) => {
+    expect(shouldUseProjectFileMirror({ hostname, protocol })).toBe(true);
+  });
+
+  it.each([
+    ['save-slot.example', 'https:'],
+    ['192.168.1.20', 'http:'],
+    ['localhost.example', 'https:'],
+    ['localhost', 'file:'],
+  ])('rejects non-launcher origin %s', (hostname, protocol) => {
+    expect(shouldUseProjectFileMirror({ hostname, protocol })).toBe(false);
+  });
+
+  it('rejects standalone PWA and native Capacitor contexts', () => {
+    expect(
+      shouldUseProjectFileMirror({ hostname: 'localhost', protocol: 'http:', standalone: true }),
+    ).toBe(false);
+    expect(
+      shouldUseProjectFileMirror({ hostname: 'localhost', protocol: 'http:', native: true }),
+    ).toBe(false);
+  });
 });
 
 describe('browser collection repository', () => {
@@ -26,7 +86,7 @@ describe('browser collection repository', () => {
         }),
       );
 
-    vi.stubGlobal('window', { dispatchEvent });
+    vi.stubGlobal('window', browserWindow(dispatchEvent));
     vi.stubGlobal('fetch', fetchMock);
 
     const repository = createCollectionRepository();
@@ -51,16 +111,43 @@ describe('browser collection repository', () => {
     expect(dispatchEvent).toHaveBeenCalled();
   });
 
+  it('uses browser-only storage on a public site', async () => {
+    const dispatchEvent = vi.fn();
+    const fetchMock = vi.fn<typeof fetch>();
+    vi.stubGlobal(
+      'window',
+      browserWindow(dispatchEvent, { hostname: 'save-slot.example', protocol: 'https:' }),
+    );
+    vi.stubGlobal('fetch', fetchMock);
+
+    const repository = createCollectionRepository();
+    const list = createDefaultList();
+    await repository.putList(list);
+    await Promise.resolve();
+
+    expect(fetchMock).not.toHaveBeenCalled();
+    expect((await repository.listLists())[0]?.id).toBe(list.id);
+  });
+
+  it('uses browser-only storage in an installed PWA', async () => {
+    const dispatchEvent = vi.fn();
+    const fetchMock = vi.fn<typeof fetch>();
+    vi.stubGlobal('window', browserWindow(dispatchEvent, { standalone: true }));
+    vi.stubGlobal('fetch', fetchMock);
+
+    const repository = createCollectionRepository();
+    const list = createDefaultList();
+    await repository.putList(list);
+    await Promise.resolve();
+
+    expect(fetchMock).not.toHaveBeenCalled();
+    expect((await repository.listLists())[0]?.id).toBe(list.id);
+  });
+
   it('uses local-only storage on a native Capacitor platform', async () => {
     const dispatchEvent = vi.fn();
     const fetchMock = vi.fn<typeof fetch>();
-    vi.stubGlobal('window', {
-      dispatchEvent,
-      Capacitor: {
-        isNativePlatform: () => true,
-        getPlatform: () => 'android',
-      },
-    });
+    vi.stubGlobal('window', browserWindow(dispatchEvent, { native: true }));
     vi.stubGlobal('fetch', fetchMock);
 
     const repository = createCollectionRepository();
