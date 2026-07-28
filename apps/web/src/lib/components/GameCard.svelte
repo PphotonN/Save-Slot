@@ -136,7 +136,7 @@
   .card-cartridge {
     position: relative;
     width: 100%;
-    aspect-ratio: 0.76;
+    aspect-ratio: 0.72;
     padding: 9px 9px 17px;
     transform: perspective(680px) rotateY(-1.4deg) rotateX(0.8deg);
     transition:
@@ -146,7 +146,7 @@
       linear-gradient(145deg, rgba(255, 255, 255, 0.1), transparent 22%),
       linear-gradient(145deg, #394346, #141a1c 68%);
     border: 1px solid #536064;
-    clip-path: polygon(7% 0, 93% 0, 100% 6%, 100% 100%, 0 100%, 0 6%);
+    clip-path: polygon(7% 0, 84% 0, 100% 11%, 100% 100%, 0 100%, 0 6%);
     box-shadow:
       inset 0 0 0 4px #0b1011,
       0 13px 28px rgba(0, 0, 0, 0.34);
@@ -159,7 +159,8 @@
   .cover-frame {
     position: relative;
     width: 100%;
-    height: 100%;
+    height: calc(100% - 9px);
+    margin-top: 4px;
     overflow: hidden;
     background: #090d0e;
     border: 1px solid #566265;
@@ -202,7 +203,7 @@
     padding: 0.4rem;
     overflow: hidden;
     color: var(--accent-cool);
-    font: 0.42rem/1.25 var(--pixel-font);
+    font: 700 0.7rem/1.25 Inter, system-ui, sans-serif;
     text-overflow: ellipsis;
     white-space: nowrap;
     background: rgba(3, 7, 8, 0.9);
@@ -237,11 +238,11 @@
 
   .cartridge-foot {
     position: absolute;
-    right: 26%;
-    bottom: 5px;
-    left: 26%;
-    height: 6px;
-    background: #080b0c;
+    right: 22%;
+    bottom: 4px;
+    left: 22%;
+    height: 8px;
+    background: linear-gradient(90deg, #8b6d2d 0 7%, #d1aa4e 7% 13%, #8b6d2d 13% 20%);
     border: 1px solid #485255;
   }
 
@@ -268,7 +269,7 @@
   .card-tags span {
     padding: 0.28rem 0.36rem;
     color: var(--muted-light);
-    font: 0.4rem/1.2 var(--pixel-font);
+    font: 600 0.68rem/1.2 Inter, system-ui, sans-serif;
     background: #101719;
     border: 1px solid var(--line);
   }

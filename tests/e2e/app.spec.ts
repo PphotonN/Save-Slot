@@ -79,6 +79,7 @@ test('starts from the offline-safe fixture catalogue', async ({ page }) => {
   await expect(page.locator('.results-heading')).toContainText('КАТАЛОГ РЕЛІЗІВ');
   await expect(page.locator('.game-card')).not.toHaveCount(0);
   await expect(page.locator('.search-status')).toContainText(/Готово|Ready/);
+  await expect(page.locator('.source-status-row')).toBeVisible();
 });
 
 test('switches the interface language and keeps it after reload', async ({ page }) => {
@@ -101,17 +102,17 @@ test('switches the interface language and keeps it after reload', async ({ page 
   await expect(page.getByPlaceholder('Game title, series, developer…')).toBeVisible();
 });
 
-test('sorting changes order without changing the visible card set', async ({ page }) => {
+test('keeps search filters available and sorts without changing the card set', async ({ page }) => {
   const cards = page.locator('.game-card');
   const initialCount = await waitForStableCount(page, cards);
   const initialTitles = await page.locator('.game-card h2').allTextContents();
+  const filters = page.locator('.search-filter-grid');
 
-  await page.locator('.toolbar-row').getByRole('button', { name: /ФІЛЬТРИ/ }).click();
-  await page
-    .locator('.toolbar-row label')
-    .filter({ hasText: 'СОРТУВАННЯ' })
-    .locator('select')
-    .selectOption('title');
+  await expect(filters).toBeVisible();
+  await expect(filters.locator('select')).toHaveCount(6);
+  await expect(filters.locator('.filter-reset')).toBeVisible();
+  await filters.locator('select').nth(4).selectOption('title');
+  await filters.locator('select').nth(5).selectOption('asc');
 
   await expect(cards).toHaveCount(initialCount);
   const sortedTitles = await page.locator('.game-card h2').allTextContents();
@@ -119,28 +120,36 @@ test('sorting changes order without changing the visible card set', async ({ pag
   expect(sortedTitles).toEqual(expected);
 });
 
-test('inserts a selected release and persists its artwork mode', async ({ page }) => {
-  await page.locator('.game-card .card-select').first().click();
-  await expect(page.locator('.game-header h1')).toBeVisible();
+test('keeps the latest selected release and removes visual filter controls', async ({ page }) => {
+  const cards = page.locator('.game-card');
+  await expect(cards.nth(1)).toBeVisible({ timeout: 20_000 });
+  const targets = await cards.evaluateAll((items) =>
+    items.slice(0, 2).map((item) => ({
+      title: item.querySelector('h2')?.textContent?.trim() ?? '',
+      label: item.querySelector<HTMLButtonElement>('.card-select')?.getAttribute('aria-label') ?? '',
+    })),
+  );
+
+  expect(targets).toHaveLength(2);
+  expect(targets[0]?.label).toBeTruthy();
+  expect(targets[1]?.label).toBeTruthy();
+  expect(targets[1]?.title).toBeTruthy();
+
+  const firstButton = page.getByRole('button', { name: targets[0]!.label, exact: true });
+  const latestButton = page.getByRole('button', { name: targets[1]!.label, exact: true });
+  await firstButton.evaluate((button: HTMLButtonElement) => button.click());
+  await latestButton.evaluate((button: HTMLButtonElement) => button.click());
+
+  await expect(page.locator('.game-header h1')).toHaveText(targets[1]!.title);
   await expect(page.locator('.fallback-cartridge')).toHaveClass(/inserted/);
   await expect(page.locator('.scene-shell')).toHaveAttribute('data-renderer', /ready|fallback/, {
     timeout: 20_000,
   });
+  await expect(page.locator('.mode-controls')).toHaveCount(0);
+  await expect(page.locator('.scene-shell')).not.toHaveAttribute('data-artwork-mode', /.+/);
 
-  await page.locator('.mode-controls').getByRole('button', { name: 'CRT', exact: true }).click();
-  await expect(page.locator('.scene-shell')).toHaveAttribute('data-artwork-mode', 'crt');
-  await expect(page.locator('.mode-controls').getByRole('button', { name: 'CRT' })).toHaveAttribute(
-    'aria-pressed',
-    'true',
-  );
-
-  await page.reload();
-  await expect(page.locator('.game-card').first()).toBeVisible({ timeout: 20_000 });
-  await expect(page.locator('.scene-shell')).toHaveAttribute('data-artwork-mode', 'crt');
-  await expect(page.locator('.mode-controls').getByRole('button', { name: 'CRT' })).toHaveAttribute(
-    'aria-pressed',
-    'true',
-  );
+  await page.waitForTimeout(1_500);
+  await expect(page.locator('.game-header h1')).toHaveText(targets[1]!.title);
 });
 
 test('rejects non-JSON and oversized collection backups before import', async ({ page }) => {

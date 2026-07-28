@@ -24,10 +24,10 @@
   type DetailTab = 'overview' | 'media' | 'ratings' | 'sources';
 
   const sceneTextureOptions = {
-    pixelated: true,
-    dither: true,
+    pixelated: false,
+    dither: false,
     crt: false,
-    textureResolution: 256,
+    textureResolution: 512,
   } as const;
 
   let { selected, entry, locale, onToggleCollection, onRatingChange, onReleaseChange }: Props = $props();
@@ -66,6 +66,7 @@
       close: 'Закрити',
       officialStore: 'Офіційний магазин',
       localData: 'Локальні дані',
+      catalogueSource: 'Джерело каталогу',
     },
     en: {
       slot: 'Selected game slot',
@@ -97,6 +98,7 @@
       close: 'Close',
       officialStore: 'Official store',
       localData: 'Local data',
+      catalogueSource: 'Catalogue source',
     },
   } as const;
 
@@ -147,6 +149,11 @@
     ];
     return [...new Map(refs.map((source) => [`${source.provider}:${source.id}`, source])).values()]
       .sort((left, right) => sourceName(left.provider).localeCompare(sourceName(right.provider), locale));
+  });
+
+  let providerOnlyRows = $derived.by(() => {
+    const referenced = new Set(sourceRows.map((source) => source.provider));
+    return (selected?.providers ?? []).filter((provider) => !referenced.has(provider));
   });
 
   $effect(() => {
@@ -325,7 +332,12 @@
               {#if source.url}<a href={source.url} target="_blank" rel="noreferrer">{text.open.toLocaleUpperCase(locale)}</a>{/if}
             </article>
           {/each}
-          {#if !sourceRows.length}<div class="empty-detail"><strong>{text.noSources.toLocaleUpperCase(locale)}</strong></div>{/if}
+          {#each providerOnlyRows as provider}
+            <article>
+              <div><strong>{sourceName(provider)}</strong><span>{text.catalogueSource}</span></div>
+            </article>
+          {/each}
+          {#if !sourceRows.length && !providerOnlyRows.length}<div class="empty-detail"><strong>{text.noSources.toLocaleUpperCase(locale)}</strong></div>{/if}
         </section>
       {/if}
 
@@ -353,16 +365,16 @@
   .slot-stage { display: grid; min-height: 265px; }
 
   .game-details { display: grid; gap: .75rem; min-height: 0; }
-  .game-header p,.section-heading,dt,.rating-input span,.credits-block span { color: var(--accent-cool); font: .42rem/1.4 var(--pixel-font); }
+  .game-header p,.section-heading,dt,.rating-input span,.credits-block span { color: var(--accent-cool); font: 600 .68rem/1.35 Inter, system-ui, sans-serif; }
   .game-header h1 { margin: .28rem 0; font-size: clamp(1.25rem,2.4vw,2rem); line-height: 1.08; }
   .game-header > span { color: var(--muted); font-size: .78rem; }
   .release-selector { display: grid; grid-auto-flow: column; grid-auto-columns: minmax(125px,1fr); gap: .35rem; overflow-x: auto; padding-bottom: .15rem; }
   .release-selector button { display: grid; gap: .2rem; min-width: 0; padding: .55rem; color: var(--muted-light); text-align: left; background: #0c1214; border: 1px solid var(--line); }
   .release-selector button.active { color: #171402; background: var(--accent); border-color: var(--accent); }
-  .release-selector span { overflow: hidden; font: .35rem/1.3 var(--pixel-font); text-overflow: ellipsis; white-space: nowrap; }
+  .release-selector span { overflow: hidden; font: 600 .68rem/1.3 Inter, system-ui, sans-serif; text-overflow: ellipsis; white-space: nowrap; }
   .release-selector small { overflow: hidden; opacity: .78; text-overflow: ellipsis; white-space: nowrap; }
   .detail-tabs { display: grid; grid-template-columns: repeat(4,minmax(0,1fr)); gap: 2px; }
-  .detail-tabs button { min-width: 0; padding: .58rem .25rem; overflow: hidden; color: var(--muted); font: .34rem/1.25 var(--pixel-font); text-overflow: ellipsis; background: var(--panel); border: 1px solid var(--line); }
+  .detail-tabs button { min-width: 0; padding: .58rem .25rem; overflow: hidden; color: var(--muted); font: 700 .64rem/1.25 Inter, system-ui, sans-serif; text-overflow: ellipsis; background: var(--panel); border: 1px solid var(--line); }
   .detail-tabs button.active { color: #171402; background: var(--accent); border-color: var(--accent); }
   .game-facts { display: grid; grid-template-columns: repeat(2,minmax(0,1fr)); gap: .4rem; margin: 0; }
   .game-facts div { min-width: 0; padding: .62rem; background: rgba(17,24,26,.78); border: 1px solid var(--line); }
@@ -385,7 +397,7 @@
   .rating-card { padding: .7rem; background: #0b1113; border: 1px solid var(--line); }
   .rating-card > div { display: flex; align-items: baseline; justify-content: space-between; gap: .6rem; }
   .rating-card strong { color: var(--accent); font-size: 1.35rem; }
-  .rating-card div span { color: var(--accent-cool); font: .36rem/1.3 var(--pixel-font); text-align: right; }
+  .rating-card div span { color: var(--accent-cool); font: 700 .66rem/1.3 Inter, system-ui, sans-serif; text-align: right; }
   .rating-card p { margin: .45rem 0; color: var(--muted-light); font-size: .76rem; }
   .rating-card small { color: var(--muted); }
   .rating-card.personal { border-color: rgba(224,185,62,.45); }
@@ -396,12 +408,12 @@
   .sources-section article div { min-width: 0; display: grid; gap: .18rem; }
   .sources-section strong { font-size: .8rem; }
   .sources-section article span { overflow: hidden; color: var(--muted); font-size: .68rem; text-overflow: ellipsis; white-space: nowrap; }
-  .sources-section a { flex: 0 0 auto; color: var(--accent); font: .32rem/1.3 var(--pixel-font); text-decoration: none; }
+  .sources-section a { flex: 0 0 auto; color: var(--accent); font: 700 .66rem/1.3 Inter, system-ui, sans-serif; text-decoration: none; }
   .empty-detail { display: grid; min-height: 150px; place-content: center; gap: .5rem; color: var(--muted); text-align: center; border: 1px dashed var(--line); }
-  .empty-detail strong { color: var(--text); font: .46rem/1.4 var(--pixel-font); }
+  .empty-detail strong { color: var(--text); font: 700 .72rem/1.4 Inter, system-ui, sans-serif; }
 
   .slot-actions { display: grid; gap: .55rem; }
-  .primary-action { min-height: 45px; padding: .7rem; color: #171402; font: .44rem/1.35 var(--pixel-font); background: var(--accent); border: 1px solid var(--accent); }
+  .primary-action { min-height: 45px; padding: .7rem; color: #171402; font: 700 .74rem/1.35 Inter, system-ui, sans-serif; background: var(--accent); border: 1px solid var(--accent); }
   .primary-action.danger { color: var(--danger); background: transparent; border-color: rgba(231,111,101,.6); }
 
   .lightbox { position: fixed; z-index: 700; inset: 0; display: grid; place-items: center; padding: 1rem; background: rgba(0,0,0,.9); }
