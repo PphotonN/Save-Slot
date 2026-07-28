@@ -182,7 +182,7 @@ async function runCli() {
       ? await waitForService(probeOptions)
       : await probeService(probeOptions);
 
-  if (!quiet || result.state !== 'unavailable') {
+  if (!quiet) {
     const label = result.state === 'ready' ? 'READY' : result.state === 'mismatch' ? 'ERROR' : 'WAIT';
     const output = result.state === 'ready' ? console.log : console.error;
     output(`[${label}] ${result.message}`);
