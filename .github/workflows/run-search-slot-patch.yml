@@ -20,7 +20,7 @@ jobs:
           ref: feature/search-slot-ux
           fetch-depth: 0
 
-      - name: Extract prepared patch
+      - name: Extract prepared patch and snapshot sources
         shell: bash
         run: |
           python - <<'PY'
@@ -31,6 +31,18 @@ jobs:
               raise SystemExit('Encoded patch payload not found.')
           pathlib.Path('/tmp/apply-search-slot-ux.mjs').write_bytes(gzip.decompress(base64.b64decode(match.group(1))))
           PY
+          tar -czf /tmp/search-slot-source.tar.gz \
+            packages/providers/src/index.ts \
+            packages/providers/src/index.test.ts \
+            apps/web/src/lib/catalog-client.ts \
+            apps/api/src/index.ts \
+            apps/web/src/routes/+page.svelte \
+            apps/web/src/lib/components/SlotPanel.svelte \
+            apps/web/src/lib/components/ThreeSlotScene.svelte \
+            apps/web/src/lib/components/ThreeSlotScene.css \
+            packages/ps1-scene/src/three-controller.ts \
+            apps/web/src/lib/components/GameCard.svelte \
+            apps/web/src/app.css
 
       - name: Run prepared patch
         id: patch
@@ -48,6 +60,7 @@ jobs:
           path: |
             /tmp/apply-search-slot-ux.mjs
             /tmp/apply-search-slot-ux.log
+            /tmp/search-slot-source.tar.gz
           if-no-files-found: error
           retention-days: 1
 
