@@ -43,6 +43,7 @@ interface SelectedArticle {
 }
 
 const MAX_ARTICLES_PER_REQUEST = 20;
+const MIN_DESCRIPTION_LENGTH = 80;
 
 function languageFromLocale(locale: string | undefined): string {
   const language = locale?.toLocaleLowerCase().split('-')[0] || 'uk';
@@ -198,7 +199,8 @@ export class WikidataProvider implements ProviderAdapter {
         const response = await this.fetchJson<WikipediaResponse>(url, signal);
         for (const page of response.query?.pages ?? []) {
           const qid = page.pageprops?.wikibase_item;
-          if (page.missing || !qid || !page.extract?.trim()) continue;
+          const extract = page.extract?.trim() ?? '';
+          if (page.missing || !qid || extract.length < MIN_DESCRIPTION_LENGTH) continue;
           const article = byQid.get(qid);
           if (!article) continue;
           const previous = byIdentity.get(qid);
@@ -228,7 +230,7 @@ export class WikidataProvider implements ProviderAdapter {
       const qid = wikidataId(result);
       const match = qid ? extracts.get(qid) : undefined;
       const text = match?.page.extract?.trim();
-      if (!match || !text || text.length < 80) return result;
+      if (!match || !text) return result;
       enrichedCount += 1;
       const url =
         match.page.fullurl ??
