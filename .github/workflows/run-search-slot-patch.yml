@@ -1,0 +1,51 @@
+name: Run search and slot UX patch
+
+on:
+  pull_request:
+    branches:
+      - app-v1
+
+permissions:
+  contents: write
+
+jobs:
+  apply:
+    if: github.event.pull_request.head.ref == 'feature/search-slot-ux'
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - name: Checkout feature branch
+        uses: actions/checkout@v6
+        with:
+          ref: feature/search-slot-ux
+          fetch-depth: 0
+
+      - name: Extract and run prepared patch
+        shell: bash
+        run: |
+          if [[ ! -f .github/workflows/apply-search-slot-ux.yml ]]; then
+            echo 'Patch payload already applied.'
+            exit 0
+          fi
+          python - <<'PY'
+          import base64, gzip, pathlib, re
+          source = pathlib.Path('.github/workflows/apply-search-slot-ux.yml').read_text(encoding='utf-8')
+          match = re.search(r"printf '%s' '([^']+)' \| base64 --decode \| gzip --decompress", source)
+          if not match:
+              raise SystemExit('Encoded patch payload not found.')
+          pathlib.Path('/tmp/apply-search-slot-ux.mjs').write_bytes(gzip.decompress(base64.b64decode(match.group(1))))
+          PY
+          node /tmp/apply-search-slot-ux.mjs
+
+      - name: Commit generated changes
+        shell: bash
+        run: |
+          git config user.name 'Save Slot Automation'
+          git config user.email 'actions@users.noreply.github.com'
+          git add -A
+          if git diff --cached --quiet; then
+            echo 'No generated changes.'
+            exit 0
+          fi
+          git commit -m 'Improve search filters and 3D slot interaction'
+          git push origin HEAD:feature/search-slot-ux
