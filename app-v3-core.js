@@ -2,6 +2,7 @@ const WIKIDATA_API = "https://www.wikidata.org/w/api.php";
 const STORAGE_KEY = "save-slot-manager-v3";
 const LEGACY_DB = "save-slot-db";
 const LEGACY_STATE_KEY = "app-state";
+const LOCAL_LIBRARY_API = "/api/library";
 const ACCEPTED_TYPES = new Set(["Q7889", "Q16070115", "Q209163", "Q1066707", "Q865493"]);
 const EXCLUDED_TYPES = new Set(["Q7058673"]);
 const STATUS_LABELS = {
@@ -15,6 +16,7 @@ let searchSequence = 0;
 let pendingImport = null;
 let currentGameId = null;
 let renderScheduled = false;
+let localLibrarySaveTimer = 0;
 
 const elements = Object.fromEntries([
   "sourceState","sourceStateText","importButton","exportButton","settingsButton","libraryButton","savedCount","importInput",
@@ -82,10 +84,46 @@ function normalizeSavedGame(game) {
   };
 }
 
+function canUseLocalLibraryApi() {
+  return location.protocol === "http:" && ["localhost", "127.0.0.1", "::1"].includes(location.hostname);
+}
+
+async function loadLocalLibraryState() {
+  if (!canUseLocalLibraryApi()) return null;
+  try {
+    const response = await fetch(LOCAL_LIBRARY_API, { cache: "no-store" });
+    if (!response.ok) return null;
+    const input = await response.json();
+    return Array.isArray(input?.lists) && input.lists.length ? sanitizeState(input) : null;
+  } catch {
+    return null;
+  }
+}
+
+async function saveLocalLibraryState(snapshot) {
+  if (!canUseLocalLibraryApi()) return;
+  try {
+    const response = await fetch(LOCAL_LIBRARY_API, {
+      method: "PUT",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify(snapshot)
+    });
+    if (!response.ok) throw new Error(`HTTP ${response.status}`);
+  } catch (error) {
+    console.warn("Не вдалося записати локальний файл бібліотеки:", error);
+  }
+}
+
 async function loadState() {
+  const localFileState = await loadLocalLibraryState();
+  if (localFileState) {
+    state = localFileState;
+    try { localStorage.setItem(STORAGE_KEY, JSON.stringify(state)); } catch { }
+    return;
+  }
   try {
     const stored = JSON.parse(localStorage.getItem(STORAGE_KEY));
-    if (stored) { state = sanitizeState(stored); return; }
+    if (stored) { state = sanitizeState(stored); persistState(); return; }
   } catch { }
   const legacy = await loadLegacyState();
   if (legacy) state = migrateLegacyState(legacy);
@@ -132,7 +170,10 @@ function migrateLegacyState(old) {
 }
 
 function persistState() {
-  try { localStorage.setItem(STORAGE_KEY, JSON.stringify(state)); } catch { }
+  const snapshot = structuredClone(state);
+  try { localStorage.setItem(STORAGE_KEY, JSON.stringify(snapshot)); } catch { }
+  clearTimeout(localLibrarySaveTimer);
+  localLibrarySaveTimer = setTimeout(() => saveLocalLibraryState(snapshot), 180);
 }
 
 function activeList() { return state.lists.find(list => list.id === state.activeListId) || state.lists[0]; }
