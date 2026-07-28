@@ -26,8 +26,32 @@ jobs:
           node-version: 24.18.0
           package-manager-cache: false
 
-      - name: Install dependencies
-        run: pnpm install --no-frozen-lockfile
+      - name: Install frozen dependencies
+        run: pnpm install --frozen-lockfile
+
+      - name: Validate Bash launcher syntax
+        run: bash -n start-save-slot.sh
+
+      - name: Validate PowerShell launcher syntax
+        shell: pwsh
+        run: |
+          $hasErrors = $false
+          foreach ($path in @('scripts/bootstrap-windows.ps1', 'scripts/launch-windows.ps1')) {
+            $tokens = $null
+            $errors = $null
+            [System.Management.Automation.Language.Parser]::ParseFile(
+              (Resolve-Path $path),
+              [ref]$tokens,
+              [ref]$errors
+            ) | Out-Null
+            if ($errors.Count -gt 0) {
+              $hasErrors = $true
+              foreach ($parseError in $errors) {
+                Write-Error "$path`: $($parseError.Message) at $($parseError.Extent.StartLineNumber):$($parseError.Extent.StartColumnNumber)"
+              }
+            }
+          }
+          if ($hasErrors) { exit 1 }
 
       - name: Normalize source formatting in the verification workspace
         run: pnpm format
@@ -66,8 +90,8 @@ jobs:
           node-version: 24.18.0
           package-manager-cache: false
 
-      - name: Install dependencies
-        run: pnpm install --no-frozen-lockfile
+      - name: Install frozen dependencies
+        run: pnpm install --frozen-lockfile
 
       - name: Normalize source formatting in the verification workspace
         run: pnpm format
