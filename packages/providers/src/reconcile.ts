@@ -205,6 +205,24 @@ function releaseIdentity(release: Release): string {
   ].join('|');
 }
 
+function rebindRelease(release: Release, gameId: string): Release {
+  const releaseId = release.id;
+  return {
+    ...release,
+    gameId,
+    media: release.media.map((asset) => ({
+      ...asset,
+      gameId,
+      ...(asset.releaseId ? { releaseId } : {}),
+    })),
+    ratings: release.ratings.map((rating) => ({
+      ...rating,
+      gameId,
+      ...(rating.releaseId ? { releaseId } : {}),
+    })),
+  };
+}
+
 function mergeRelease(primary: Release, secondary: Release, gameId: string): Release {
   const releaseId = primary.id;
   return {
@@ -253,14 +271,13 @@ export function mergeSearchResults(left: SearchResult, right: SearchResult): Sea
   const [primary, secondary] = score(left) >= score(right) ? [left, right] : [right, left];
   const releaseMap = new Map<string, Release>();
 
-  for (const release of [...primary.releases, ...secondary.releases]) {
+  for (const originalRelease of [...primary.releases, ...secondary.releases]) {
+    const release = rebindRelease(originalRelease, primary.game.id);
     const key = releaseIdentity(release);
     const previous = releaseMap.get(key);
     releaseMap.set(
       key,
-      previous
-        ? mergeRelease(previous, release, primary.game.id)
-        : { ...release, gameId: primary.game.id },
+      previous ? mergeRelease(previous, release, primary.game.id) : release,
     );
   }
 
