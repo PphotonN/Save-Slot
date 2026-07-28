@@ -101,3 +101,27 @@ jobs:
 
       - name: Run Playwright acceptance tests
         run: pnpm test:e2e
+
+  windows-startup:
+    name: Windows portable first-launch smoke
+    runs-on: windows-latest
+    timeout-minutes: 20
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v6
+
+      - name: Bootstrap portable runtime and frozen dependencies
+        shell: powershell
+        run: |
+          $root = (Resolve-Path '.').Path
+          & powershell.exe -NoLogo -NoProfile -ExecutionPolicy Bypass -File "$root\scripts\bootstrap-windows.ps1" -ProjectRoot $root
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+
+      - name: Start and verify Library, API and Web
+        shell: powershell
+        run: |
+          $root = (Resolve-Path '.').Path
+          $node = Join-Path $root '.runtime\node\node.exe'
+          $pnpm = Join-Path $root '.runtime\pnpm\pnpm.cmd'
+          & powershell.exe -NoLogo -NoProfile -ExecutionPolicy Bypass -File "$root\scripts\launch-windows.ps1" -ProjectRoot $root -NodeExecutable $node -PnpmCommand $pnpm -SmokeTest
+          exit $LASTEXITCODE
