@@ -53,6 +53,10 @@ function titleCandidates(result: SearchResult): Set<string> {
   );
 }
 
+function developerKeys(result: SearchResult): Set<string> {
+  return new Set(result.game.developers.map(normalized).filter(Boolean));
+}
+
 function years(result: SearchResult): number[] {
   return uniqueStrings(
     result.releases
@@ -104,6 +108,7 @@ export interface IdentityAssessment {
     | 'shared-external-id'
     | 'title-year-platform'
     | 'title-year'
+    | 'title-platform-developer'
     | 'fuzzy-title-year-platform'
     | 'insufficient';
 }
@@ -122,12 +127,16 @@ export function assessIdentity(left: SearchResult, right: SearchResult): Identit
   const exactTitle = intersects(leftTitles, rightTitles);
   const yearDistance = closestYearDistance(left, right);
   const platformOverlap = intersects(platformKeys(left), platformKeys(right));
+  const developerOverlap = intersects(developerKeys(left), developerKeys(right));
 
-  if (exactTitle && platformOverlap && (yearDistance === undefined || yearDistance <= 1)) {
+  if (exactTitle && platformOverlap && yearDistance !== undefined && yearDistance <= 1) {
     return { confidence: 0.96, reason: 'title-year-platform' };
   }
   if (exactTitle && yearDistance !== undefined && yearDistance <= 1) {
     return { confidence: 0.9, reason: 'title-year' };
+  }
+  if (exactTitle && platformOverlap && developerOverlap) {
+    return { confidence: 0.9, reason: 'title-platform-developer' };
   }
 
   const similarity = Math.max(
@@ -161,7 +170,7 @@ function uniqueDescriptions(values: LocalizedText[]): LocalizedText[] {
 function uniqueMedia(values: MediaAsset[]): MediaAsset[] {
   return [
     ...new Map(
-      values
+      [...values]
         .sort((left, right) => Number(right.verified) - Number(left.verified))
         .map((value) => [`${value.kind}:${value.url}`, value]),
     ).values(),
