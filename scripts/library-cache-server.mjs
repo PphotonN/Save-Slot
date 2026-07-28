@@ -10,22 +10,10 @@ const cacheDirectory = resolve(process.env.SAVE_SLOT_DATA_DIR || join(projectRoo
 const libraryPath = join(cacheDirectory, 'library.json');
 const backupPath = join(cacheDirectory, 'library.backup.json');
 const temporaryPath = join(cacheDirectory, 'library.tmp.json');
-const host = process.env.SAVE_SLOT_LIBRARY_HOST || '127.0.0.1';
+const host = '127.0.0.1';
+const port = 8791;
 const maximumBodyBytes = 20 * 1024 * 1024;
 let writeQueue = Promise.resolve();
-
-function parsePort(value) {
-  const parsed = Number.parseInt(value, 10);
-  if (!Number.isInteger(parsed) || parsed < 1 || parsed > 65_535 || String(parsed) !== value.trim()) {
-    throw new Error(`Invalid SAVE_SLOT_LIBRARY_PORT: ${value}`);
-  }
-  return parsed;
-}
-
-if (!['127.0.0.1', '::1', 'localhost'].includes(host.toLocaleLowerCase('en-US'))) {
-  throw new Error('SAVE_SLOT_LIBRARY_HOST must remain on a loopback address.');
-}
-const port = parsePort(process.env.SAVE_SLOT_LIBRARY_PORT || '8791');
 
 function corsHeaders(request) {
   return libraryCorsHeaders(request.headers.origin);
