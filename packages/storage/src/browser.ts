@@ -34,6 +34,24 @@ interface CapacitorBridge {
 }
 
 type WindowWithCapacitor = Window & { Capacitor?: CapacitorBridge };
+type NavigatorWithStandalone = Navigator & { standalone?: boolean };
+
+export interface ProjectFileMirrorContext {
+  hostname: string;
+  protocol: string;
+  native?: boolean;
+  standalone?: boolean;
+}
+
+function normalizeHostname(hostname: string): string {
+  return hostname.trim().toLowerCase().replace(/^\[|\]$/g, '');
+}
+
+export function shouldUseProjectFileMirror(context: ProjectFileMirrorContext): boolean {
+  if (context.native || context.standalone) return false;
+  if (!['http:', 'https:'].includes(context.protocol.toLowerCase())) return false;
+  return ['localhost', '127.0.0.1', '::1'].includes(normalizeHostname(context.hostname));
+}
 
 function isNativeCapacitorPlatform(): boolean {
   if (typeof window === 'undefined') return false;
@@ -45,6 +63,12 @@ function isNativeCapacitorPlatform(): boolean {
   } catch {
     return false;
   }
+}
+
+function isStandalonePwa(): boolean {
+  if (typeof window === 'undefined') return false;
+  if (window.matchMedia?.('(display-mode: standalone)').matches) return true;
+  return Boolean((window.navigator as NavigatorWithStandalone).standalone);
 }
 
 function emitCacheStatus(status: 'ready' | 'saved' | 'unavailable' | 'error', message: string): void {
@@ -208,10 +232,24 @@ export function createCollectionRepository(): CollectionRepository {
       ? new MemoryCollectionRepository()
       : new IndexedDbCollectionRepository();
 
-  if (typeof window === 'undefined' || isNativeCapacitorPlatform()) {
-    if (typeof window !== 'undefined') {
-      queueMicrotask(() => emitCacheStatus('ready', 'IndexedDB · local app storage'));
-    }
+  if (typeof window === 'undefined') return base;
+
+  const native = isNativeCapacitorPlatform();
+  const standalone = isStandalonePwa();
+  const mirrorProjectFile = shouldUseProjectFileMirror({
+    hostname: window.location.hostname,
+    protocol: window.location.protocol,
+    native,
+    standalone,
+  });
+
+  if (!mirrorProjectFile) {
+    queueMicrotask(() =>
+      emitCacheStatus(
+        'ready',
+        native ? 'IndexedDB · local app storage' : 'IndexedDB · local browser storage',
+      ),
+    );
     return base;
   }
 
