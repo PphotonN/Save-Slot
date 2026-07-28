@@ -123,13 +123,24 @@ test('keeps search filters available and sorts without changing the card set', a
 test('keeps the latest selected release and removes visual filter controls', async ({ page }) => {
   const cards = page.locator('.game-card');
   await expect(cards.nth(1)).toBeVisible({ timeout: 20_000 });
-  const latestTitle = (await cards.nth(1).locator('h2').textContent())?.trim();
-  expect(latestTitle).toBeTruthy();
+  const targets = await cards.evaluateAll((items) =>
+    items.slice(0, 2).map((item) => ({
+      title: item.querySelector('h2')?.textContent?.trim() ?? '',
+      label: item.querySelector<HTMLButtonElement>('.card-select')?.getAttribute('aria-label') ?? '',
+    })),
+  );
 
-  await cards.first().locator('.card-select').click();
-  await cards.nth(1).locator('.card-select').click();
+  expect(targets).toHaveLength(2);
+  expect(targets[0]?.label).toBeTruthy();
+  expect(targets[1]?.label).toBeTruthy();
+  expect(targets[1]?.title).toBeTruthy();
 
-  await expect(page.locator('.game-header h1')).toHaveText(latestTitle!);
+  const firstButton = page.getByRole('button', { name: targets[0]!.label, exact: true });
+  const latestButton = page.getByRole('button', { name: targets[1]!.label, exact: true });
+  await firstButton.evaluate((button: HTMLButtonElement) => button.click());
+  await latestButton.evaluate((button: HTMLButtonElement) => button.click());
+
+  await expect(page.locator('.game-header h1')).toHaveText(targets[1]!.title);
   await expect(page.locator('.fallback-cartridge')).toHaveClass(/inserted/);
   await expect(page.locator('.scene-shell')).toHaveAttribute('data-renderer', /ready|fallback/, {
     timeout: 20_000,
@@ -138,7 +149,7 @@ test('keeps the latest selected release and removes visual filter controls', asy
   await expect(page.locator('.scene-shell')).not.toHaveAttribute('data-artwork-mode', /.+/);
 
   await page.waitForTimeout(1_500);
-  await expect(page.locator('.game-header h1')).toHaveText(latestTitle!);
+  await expect(page.locator('.game-header h1')).toHaveText(targets[1]!.title);
 });
 
 test('rejects non-JSON and oversized collection backups before import', async ({ page }) => {
