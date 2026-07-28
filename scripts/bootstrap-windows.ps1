@@ -85,8 +85,15 @@ function Test-ExactVersion([string]$Executable, [string]$ExpectedVersion) {
     if ($exitCode -ne 0 -or $output.Count -eq 0) {
       return $false
     }
-    $actual = ([string]($output | Select-Object -Last 1)).Trim().TrimStart([char]'v')
-    return $actual -eq $ExpectedVersion
+
+    $versionPattern = '(?<!\d)v?(\d+\.\d+\.\d+)(?!\d)'
+    $matches = [regex]::Matches(($output -join "`n"), $versionPattern)
+    foreach ($match in $matches) {
+      if ($match.Groups[1].Value -eq $ExpectedVersion) {
+        return $true
+      }
+    }
+    return $false
   } catch {
     return $false
   }
