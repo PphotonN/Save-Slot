@@ -83,13 +83,16 @@ export async function waitForService(options) {
   const intervalMs = options.intervalMs ?? 300;
   const deadline = Date.now() + timeoutMs;
   let latest = { state: 'unavailable', message: 'Service is not available.' };
+  let latestMismatch;
 
   while (Date.now() < deadline) {
     latest = await probeService({ ...options, timeoutMs: Math.min(2_000, timeoutMs) });
-    if (latest.state === 'ready' || latest.state === 'mismatch') return latest;
+    if (latest.state === 'ready') return latest;
+    if (latest.state === 'mismatch') latestMismatch = latest;
     await new Promise((resolveDelay) => setTimeout(resolveDelay, intervalMs));
   }
 
+  if (latestMismatch) return latestMismatch;
   return {
     state: 'unavailable',
     message: `${options.expectedService} did not become ready within ${timeoutMs} ms. Last error: ${latest.message}`,
