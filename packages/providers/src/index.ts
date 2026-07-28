@@ -8,10 +8,10 @@ export type { IdentityAssessment } from './reconcile';
 export interface SearchRequest {
   query: string;
   locale?: string;
-  platformId?: string;
-  genre?: string;
-  yearFrom?: number;
-  yearTo?: number;
+  platformId?: string | undefined;
+  genre?: string | undefined;
+  yearFrom?: number | undefined;
+  yearTo?: number | undefined;
   cursor?: string;
   limit?: number;
 }
@@ -96,9 +96,12 @@ export function sortSearchResults(
   copy.sort((left, right) => {
     let comparison = 0;
     if (sort === 'title') comparison = left.game.title.localeCompare(right.game.title, 'uk');
-    else if (sort === 'year') comparison = (firstRelease(left)?.year ?? 0) - (firstRelease(right)?.year ?? 0);
-    else if (sort === 'rating') comparison = (firstRating(left)?.score ?? -1) - (firstRating(right)?.score ?? -1);
-    else if (sort === 'votes') comparison = (firstRating(left)?.votes ?? -1) - (firstRating(right)?.votes ?? -1);
+    else if (sort === 'year')
+      comparison = (firstRelease(left)?.year ?? 0) - (firstRelease(right)?.year ?? 0);
+    else if (sort === 'rating')
+      comparison = (firstRating(left)?.score ?? -1) - (firstRating(right)?.score ?? -1);
+    else if (sort === 'votes')
+      comparison = (firstRating(left)?.votes ?? -1) - (firstRating(right)?.votes ?? -1);
     else comparison = left.relevance - right.relevance;
     return direction === 'asc' ? comparison : -comparison;
   });
