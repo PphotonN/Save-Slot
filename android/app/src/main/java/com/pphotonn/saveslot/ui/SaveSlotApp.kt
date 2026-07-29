@@ -94,7 +94,7 @@ fun SaveSlotApp(viewModel: MainViewModel) {
     Scaffold(
         containerColor = MaterialTheme.colorScheme.background,
         snackbarHost = { SnackbarHost(snackbar) },
-        topBar = { Header(state) },
+        topBar = { Header() },
         bottomBar = { BottomNavigation(state.screen, viewModel::setScreen) },
     ) { padding ->
         when (state.screen) {
@@ -107,22 +107,14 @@ fun SaveSlotApp(viewModel: MainViewModel) {
 }
 
 @Composable
-private fun Header(state: AppUiState) {
+private fun Header() {
     Row(
         Modifier.fillMaxWidth().background(SaveSurface).statusBarsPadding().padding(16.dp),
         verticalAlignment = Alignment.CenterVertically,
     ) {
         Text("SAVE SLOT", color = SaveGreen, fontWeight = FontWeight.Black, fontFamily = FontFamily.Monospace)
         Spacer(Modifier.weight(1f))
-        val health = when {
-            state.loading -> SaveAmber
-            state.sourceHealth.any { it.state == HealthState.READY } -> SaveGreen
-            state.sourceHealth.any { it.state == HealthState.ERROR } -> SaveDanger
-            else -> SaveMuted
-        }
-        Box(Modifier.size(9.dp).clip(RoundedCornerShape(50)).background(health))
-        Spacer(Modifier.width(7.dp))
-        Text(if (state.loading) "ОНОВЛЕННЯ" else "ОНЛАЙН", color = SaveMuted, fontSize = 10.sp)
+        Text("ANDROID", color = SaveMuted, fontSize = 10.sp, fontFamily = FontFamily.Monospace)
     }
 }
 
@@ -142,6 +134,10 @@ private fun BottomNavigation(selected: AppScreen, onSelect: (AppScreen) -> Unit)
 
 @Composable
 private fun HomeScreen(state: AppUiState, vm: MainViewModel, padding: PaddingValues) {
+    val resultStrip = state.visibleResults
+        .filterNot { it.id == state.selectedGame?.id }
+        .take(20)
+
     LazyColumn(
         Modifier.fillMaxSize().padding(padding),
         contentPadding = PaddingValues(16.dp),
@@ -165,7 +161,15 @@ private fun HomeScreen(state: AppUiState, vm: MainViewModel, padding: PaddingVal
                 )
                 state.selectedGame?.let { game ->
                     Text(meta(game), color = SaveMuted)
-                    if (game.description.isNotBlank()) Text(game.description, maxLines = 3, overflow = TextOverflow.Ellipsis)
+                    if (game.description.isNotBlank()) {
+                        Text(
+                            game.description,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                            lineHeight = 21.sp,
+                        )
+                    } else {
+                        Text("Розширений опис для цієї гри не знайдено.", color = SaveMuted)
+                    }
                 }
                 Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
                     Button(
@@ -182,6 +186,21 @@ private fun HomeScreen(state: AppUiState, vm: MainViewModel, padding: PaddingVal
                 }
             }
         }
+        if (resultStrip.isNotEmpty()) {
+            item {
+                Title(
+                    "Результати пошуку",
+                    state.query.takeIf(String::isNotBlank)?.let { "За запитом «$it»" } ?: "Поточна добірка",
+                )
+            }
+            item {
+                LazyRow(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+                    items(resultStrip, key = Game::id) { game ->
+                        SmallGameCard(game) { vm.selectGame(game) }
+                    }
+                }
+            }
+        }
         if (state.featuredFive.isNotEmpty()) {
             item { Title("Випадкова п’ятірка", "П’ять різних ігор") }
             item {
@@ -191,7 +210,6 @@ private fun HomeScreen(state: AppUiState, vm: MainViewModel, padding: PaddingVal
             }
         }
         item { SearchInput(state, vm) }
-        item { SourceStatus(state) }
     }
 }
 
@@ -229,18 +247,44 @@ private fun SearchScreen(state: AppUiState, vm: MainViewModel, padding: PaddingV
 
 @Composable
 private fun SearchInput(state: AppUiState, vm: MainViewModel) {
-    Row(horizontalArrangement = Arrangement.spacedBy(8.dp), verticalAlignment = Alignment.CenterVertically) {
-        OutlinedTextField(
-            value = state.query,
-            onValueChange = vm::setQuery,
-            label = { Text("Назва гри") },
-            placeholder = { Text("Zelda, Metroid, Koudelka…") },
-            singleLine = true,
-            modifier = Modifier.weight(1f),
-            keyboardOptions = KeyboardOptions(imeAction = ImeAction.Search),
-            keyboardActions = KeyboardActions(onSearch = { vm.search() }),
-        )
-        Button(onClick = vm::search, enabled = !state.loading) { Text("ПОШУК") }
+    Column(Modifier.fillMaxWidth()) {
+        Row(horizontalArrangement = Arrangement.spacedBy(8.dp), verticalAlignment = Alignment.CenterVertically) {
+            OutlinedTextField(
+                value = state.query,
+                onValueChange = vm::setQuery,
+                label = { Text("Назва гри") },
+                placeholder = { Text("Zelda, Metroid, Koudelka…") },
+                singleLine = true,
+                modifier = Modifier.weight(1f),
+                keyboardOptions = KeyboardOptions(imeAction = ImeAction.Search),
+                keyboardActions = KeyboardActions(onSearch = { vm.search() }),
+            )
+            Button(onClick = vm::search, enabled = !state.loading) { Text("ПОШУК") }
+        }
+        if (state.suggestions.isNotEmpty()) {
+            Card(
+                modifier = Modifier.fillMaxWidth().padding(top = 6.dp),
+                colors = CardDefaults.cardColors(containerColor = SaveSurfaceHigh),
+                shape = RoundedCornerShape(14.dp),
+            ) {
+                Column {
+                    state.suggestions.forEachIndexed { index, suggestion ->
+                        Row(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .clickable { vm.chooseSuggestion(suggestion) }
+                                .padding(horizontal = 14.dp, vertical = 12.dp),
+                            verticalAlignment = Alignment.CenterVertically,
+                        ) {
+                            Text("›", color = SaveGreen, fontWeight = FontWeight.Bold)
+                            Spacer(Modifier.width(10.dp))
+                            Text(suggestion, modifier = Modifier.weight(1f), maxLines = 1, overflow = TextOverflow.Ellipsis)
+                        }
+                        if (index != state.suggestions.lastIndex) HorizontalDivider(color = SaveSurface)
+                    }
+                }
+            }
+        }
     }
 }
 
@@ -314,7 +358,7 @@ private fun SettingsScreen(state: AppUiState, vm: MainViewModel, padding: Paddin
         item { Title("Параметри", "Джерела та локальні дані") }
         item {
             Panel {
-                Toggle("Wikidata", "Основний каталог без ключа", settings.useWikidata) { settings = settings.copy(useWikidata = it) }
+                Toggle("Wikidata + Wikipedia", "Каталог, повніші описи та обкладинки без ключа", settings.useWikidata) { settings = settings.copy(useWikidata = it) }
                 HorizontalDivider()
                 Toggle("Steam-рейтинг", "Довантаження відгуків", settings.useSteamRatings) { settings = settings.copy(useSteamRatings = it) }
                 HorizontalDivider()
@@ -348,6 +392,9 @@ private fun GameRow(game: Game, saved: Boolean, onOpen: () -> Unit, onSave: () -
             Column(Modifier.weight(1f)) {
                 Text(game.title, fontWeight = FontWeight.Bold, fontSize = 17.sp, maxLines = 2)
                 Text(meta(game), color = SaveMuted, fontSize = 12.sp)
+                if (game.description.isNotBlank()) {
+                    Text(game.description, color = MaterialTheme.colorScheme.onSurfaceVariant, fontSize = 12.sp, maxLines = 2, overflow = TextOverflow.Ellipsis)
+                }
                 Text(game.source.label, color = SaveGreen, fontSize = 11.sp)
             }
             TextButton(onSave, enabled = !saved) { Text(if (saved) "✓" else "+") }
@@ -358,7 +405,7 @@ private fun GameRow(game: Game, saved: Boolean, onOpen: () -> Unit, onSave: () -
 @Composable
 private fun SmallGameCard(game: Game, onClick: () -> Unit) {
     Card(Modifier.width(145.dp).clickable(onClick = onClick), colors = CardDefaults.cardColors(containerColor = SaveSurface)) {
-        RemoteImage(game.coverUrl, game.title, Modifier.fillMaxWidth().height(165.dp))
+        RemoteImage(game.coverUrl, game.title, Modifier.fillMaxWidth().height(178.dp).clip(RoundedCornerShape(topStart = 12.dp, topEnd = 12.dp)))
         Text(game.title, Modifier.padding(10.dp), fontWeight = FontWeight.Bold, maxLines = 2, overflow = TextOverflow.Ellipsis)
     }
 }
@@ -367,6 +414,8 @@ private fun SmallGameCard(game: Game, onClick: () -> Unit) {
 private fun LibraryRow(entry: LibraryEntry, onEdit: () -> Unit, onDelete: () -> Unit) {
     Card(Modifier.fillMaxWidth().clickable(onClick = onEdit), colors = CardDefaults.cardColors(containerColor = SaveSurface)) {
         Row(Modifier.padding(12.dp), verticalAlignment = Alignment.CenterVertically) {
+            RemoteImage(entry.game.coverUrl, entry.game.title, Modifier.size(width = 52.dp, height = 70.dp).clip(RoundedCornerShape(8.dp)))
+            Spacer(Modifier.width(10.dp))
             Column(Modifier.weight(1f)) {
                 Text(entry.game.title, fontWeight = FontWeight.Bold)
                 Text("${entry.status.label} · ${entry.collection}", color = SaveMuted, fontSize = 12.sp)
