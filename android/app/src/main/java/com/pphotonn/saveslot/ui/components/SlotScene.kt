@@ -1,28 +1,23 @@
 package com.pphotonn.saveslot.ui.components
 
-import android.graphics.Bitmap
-import android.graphics.BitmapFactory
-import android.util.LruCache
 import androidx.compose.animation.core.Animatable
 import androidx.compose.animation.core.FastOutSlowInEasing
 import androidx.compose.animation.core.tween
 import androidx.compose.foundation.Canvas
-import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.matchParentSize
 import androidx.compose.foundation.layout.offset
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
-import androidx.compose.runtime.getValue
-import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
-import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
@@ -31,23 +26,20 @@ import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.geometry.Size
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
-import androidx.compose.ui.graphics.ImageBitmap
-import androidx.compose.ui.graphics.asImageBitmap
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.layout.ContentScale
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import coil3.compose.AsyncImage
+import coil3.request.ImageRequest
 import com.pphotonn.saveslot.model.Game
 import com.pphotonn.saveslot.ui.theme.SaveAmber
 import com.pphotonn.saveslot.ui.theme.SaveGreen
 import com.pphotonn.saveslot.ui.theme.SaveMuted
 import com.pphotonn.saveslot.ui.theme.SaveSurfaceHigh
-import kotlinx.coroutines.Dispatchers
-import kotlinx.coroutines.withContext
-import java.net.HttpURLConnection
-import java.net.URI
 
 @Composable
 fun SlotScene(
@@ -197,69 +189,37 @@ fun RemoteImage(
     contentDescription: String?,
     modifier: Modifier = Modifier,
 ) {
-    var bitmap by remember(url) { mutableStateOf<ImageBitmap?>(url?.let(imageMemoryCache::get)) }
-    var failed by remember(url) { mutableStateOf(false) }
-
-    LaunchedEffect(url) {
-        failed = false
-        bitmap = when {
-            url.isNullOrBlank() -> null
-            imageMemoryCache.get(url) != null -> imageMemoryCache.get(url)
-            else -> loadBitmap(url)?.also { imageMemoryCache.put(url, it) }
-        }
-        failed = bitmap == null
-    }
-
-    val image = bitmap
-    if (image != null) {
-        Image(
-            bitmap = image,
-            contentDescription = contentDescription,
-            modifier = modifier,
-            contentScale = ContentScale.Crop,
-        )
-    } else {
-        Box(
-            modifier = modifier.background(
-                Brush.linearGradient(
-                    listOf(Color(0xFF29352F), Color(0xFF111614), Color(0xFF3B2E1E))
-                )
-            ),
-            contentAlignment = Alignment.Center,
-        ) {
-            TextFallback(contentDescription, failed)
+    val context = LocalContext.current
+    Box(
+        modifier = modifier.background(
+            Brush.linearGradient(
+                listOf(Color(0xFF29352F), Color(0xFF111614), Color(0xFF3B2E1E))
+            )
+        ),
+        contentAlignment = Alignment.Center,
+    ) {
+        TextFallback(contentDescription)
+        if (!url.isNullOrBlank()) {
+            AsyncImage(
+                model = ImageRequest.Builder(context)
+                    .data(url)
+                    .crossfade(true)
+                    .build(),
+                contentDescription = contentDescription,
+                modifier = Modifier.matchParentSize(),
+                contentScale = ContentScale.Crop,
+            )
         }
     }
 }
 
 @Composable
-private fun TextFallback(title: String?, failed: Boolean) {
-    androidx.compose.material3.Text(
-        text = title?.trim()?.take(2)?.uppercase().orEmpty().ifBlank { if (failed) "×" else "…" },
-        color = if (failed) SaveMuted else Color.White.copy(alpha = 0.7f),
+private fun TextFallback(title: String?) {
+    Text(
+        text = title?.trim()?.take(2)?.uppercase().orEmpty().ifBlank { "…" },
+        color = SaveMuted,
         fontSize = 24.sp,
         fontWeight = FontWeight.Black,
         fontFamily = FontFamily.Monospace,
     )
 }
-
-private suspend fun loadBitmap(url: String): ImageBitmap? = withContext(Dispatchers.IO) {
-    runCatching {
-        val connection = URI(url).toURL().openConnection() as HttpURLConnection
-        try {
-            connection.connectTimeout = 12_000
-            connection.readTimeout = 20_000
-            connection.instanceFollowRedirects = true
-            connection.setRequestProperty("User-Agent", "SaveSlotAndroid/1.1")
-            connection.setRequestProperty("Accept", "image/*,*/*;q=0.8")
-            val code = connection.responseCode
-            if (code !in 200..299) return@runCatching null
-            val options = BitmapFactory.Options().apply { inPreferredConfig = Bitmap.Config.RGB_565 }
-            connection.inputStream.use { BitmapFactory.decodeStream(it, null, options)?.asImageBitmap() }
-        } finally {
-            connection.disconnect()
-        }
-    }.getOrNull()
-}
-
-private val imageMemoryCache = object : LruCache<String, ImageBitmap>(32) {}
