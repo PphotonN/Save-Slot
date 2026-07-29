@@ -9,7 +9,6 @@ import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
-import androidx.compose.foundation.layout.matchParentSize
 import androidx.compose.foundation.layout.offset
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
@@ -35,6 +34,7 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import coil3.compose.AsyncImage
 import coil3.request.ImageRequest
+import coil3.request.crossfade
 import com.pphotonn.saveslot.model.Game
 import com.pphotonn.saveslot.ui.theme.SaveAmber
 import com.pphotonn.saveslot.ui.theme.SaveGreen
@@ -206,7 +206,7 @@ fun RemoteImage(
                     .crossfade(true)
                     .build(),
                 contentDescription = contentDescription,
-                modifier = Modifier.matchParentSize(),
+                modifier = Modifier.fillMaxSize(),
                 contentScale = ContentScale.Crop,
             )
         }
