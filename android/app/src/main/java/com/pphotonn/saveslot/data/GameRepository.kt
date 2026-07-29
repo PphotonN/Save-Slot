@@ -20,13 +20,13 @@ import java.nio.charset.StandardCharsets
 import kotlin.math.max
 
 class GameRepository(private val store: LocalStore) {
-    private val userAgent = "SaveSlotAndroid/1.0 (https://github.com/PphotonN/Save-Slot)"
+    private val userAgent = "SaveSlotAndroid/1.1 (https://github.com/PphotonN/Save-Slot)"
 
     suspend fun search(query: String, settings: AppSettings): SearchResponse = withContext(Dispatchers.IO) {
         val cleanQuery = query.trim()
         if (cleanQuery.isBlank()) return@withContext SearchResponse(emptyList(), emptyList(), false)
 
-        val cacheKey = "search|$cleanQuery|${settings.useWikidata}|${settings.rawgApiKey.isNotBlank()}"
+        val cacheKey = "$SEARCH_CACHE_VERSION|search|$cleanQuery|${settings.useWikidata}|${settings.rawgApiKey.isNotBlank()}"
         store.readCache(cacheKey, SEARCH_CACHE_TTL)?.let { cached ->
             return@withContext decodeSearchResponse(cached, fromCache = true)
         }
@@ -38,10 +38,10 @@ class GameRepository(private val store: LocalStore) {
             runCatching { searchWikidata(cleanQuery) }
                 .onSuccess {
                     results += it
-                    health += SourceHealth("Wikidata", HealthState.READY, "${it.size} ігор")
+                    health += SourceHealth("Wikidata + Wikipedia", HealthState.READY, "${it.size} ігор")
                 }
                 .onFailure {
-                    health += SourceHealth("Wikidata", HealthState.ERROR, it.compactMessage())
+                    health += SourceHealth("Wikidata + Wikipedia", HealthState.ERROR, it.compactMessage())
                 }
         }
 
@@ -65,6 +65,20 @@ class GameRepository(private val store: LocalStore) {
         response
     }
 
+    suspend fun suggest(query: String, settings: AppSettings): List<String> = withContext(Dispatchers.IO) {
+        val cleanQuery = query.trim()
+        if (cleanQuery.length < 2) return@withContext emptyList()
+
+        val suggestions = mutableListOf<String>()
+        runCatching { wikidataSuggestions(cleanQuery) }.getOrDefault(emptyList()).let(suggestions::addAll)
+        if (settings.rawgApiKey.isNotBlank()) {
+            runCatching { rawgSuggestions(cleanQuery, settings.rawgApiKey) }
+                .getOrDefault(emptyList())
+                .let(suggestions::addAll)
+        }
+        suggestions.distinctBy { it.lowercase() }.take(8)
+    }
+
     suspend fun discover(settings: AppSettings): SearchResponse {
         val seeds = listOf(
             "action adventure game", "role-playing video game", "platform game", "survival horror game",
@@ -86,34 +100,7 @@ class GameRepository(private val store: LocalStore) {
     }
 
     private suspend fun searchWikidata(query: String): List<Game> {
-        val searchUrl = buildUrl(
-            "https://www.wikidata.org/w/api.php",
-            mapOf(
-                "action" to "wbsearchentities",
-                "search" to query,
-                "language" to "uk",
-                "uselang" to "uk",
-                "type" to "item",
-                "limit" to "45",
-                "format" to "json"
-            )
-        )
-        val searchJson = JSONObject(get(searchUrl))
-        val ids = searchJson.optJSONArray("search").idsFromSearch()
-            .ifEmpty {
-                val fallback = buildUrl(
-                    "https://www.wikidata.org/w/api.php",
-                    mapOf(
-                        "action" to "wbsearchentities",
-                        "search" to query,
-                        "language" to "en",
-                        "type" to "item",
-                        "limit" to "45",
-                        "format" to "json"
-                    )
-                )
-                JSONObject(get(fallback)).optJSONArray("search").idsFromSearch()
-            }
+        val ids = searchWikidataIds(query)
         if (ids.isEmpty()) return emptyList()
 
         val entityUrl = buildUrl(
@@ -121,7 +108,7 @@ class GameRepository(private val store: LocalStore) {
             mapOf(
                 "action" to "wbgetentities",
                 "ids" to ids.joinToString("|"),
-                "props" to "labels|descriptions|claims",
+                "props" to "labels|descriptions|claims|sitelinks",
                 "languages" to "uk|en",
                 "languagefallback" to "1",
                 "format" to "json"
@@ -137,15 +124,20 @@ class GameRepository(private val store: LocalStore) {
         }
         val labels = resolveLabels(relatedIds)
 
+        val wikiLinks = ids.mapNotNull { id ->
+            wikiLink(entities.optJSONObject(id))?.let { id to it }
+        }.toMap()
+        val wikiDetails = resolveWikipediaDetails(wikiLinks)
+
         return buildList {
             ids.forEachIndexed { index, id ->
                 val entity = entities.optJSONObject(id) ?: return@forEachIndexed
                 val claims = entity.optJSONObject("claims") ?: JSONObject()
-                val description = localizedValue(entity.optJSONObject("descriptions"))
+                val shortDescription = localizedValue(entity.optJSONObject("descriptions"))
                 val instances = claimEntityIds(claims, "P31")
                 val looksLikeGame = "Q7889" in instances ||
-                    description.contains("відеогр", true) ||
-                    description.contains("video game", true)
+                    shortDescription.contains("відеогр", true) ||
+                    shortDescription.contains("video game", true)
                 if (!looksLikeGame) return@forEachIndexed
 
                 val title = localizedValue(entity.optJSONObject("labels")).ifBlank { return@forEachIndexed }
@@ -154,6 +146,14 @@ class GameRepository(private val store: LocalStore) {
                 val release = firstTime(claims, "P577")
                 val image = firstString(claims, "P18")
                 val steamId = firstString(claims, "P1733")
+                val details = wikiDetails[id]
+                val description = details?.extract
+                    ?.takeIf { it.length > shortDescription.length }
+                    ?: shortDescription
+                val cover = details?.imageUrl
+                    ?: image?.let(::commonsImageUrl)
+                    ?: steamId?.let(::steamPortraitUrl)
+
                 add(
                     Game(
                         id = "wikidata:$id",
@@ -162,7 +162,7 @@ class GameRepository(private val store: LocalStore) {
                         year = release?.take(5)?.drop(1)?.toIntOrNull(),
                         platforms = platformIds.mapNotNull(labels::get).distinct(),
                         genres = genreIds.mapNotNull(labels::get).distinct(),
-                        coverUrl = image?.let(::commonsImageUrl),
+                        coverUrl = cover,
                         source = GameSource.WIKIDATA,
                         sourceOrder = index,
                         relevance = max(0.0, 100.0 - index),
@@ -171,6 +171,132 @@ class GameRepository(private val store: LocalStore) {
                 )
             }
         }
+    }
+
+    private fun searchWikidataIds(query: String): List<String> {
+        fun request(language: String): List<String> {
+            val url = buildUrl(
+                "https://www.wikidata.org/w/api.php",
+                mapOf(
+                    "action" to "wbsearchentities",
+                    "search" to query,
+                    "language" to language,
+                    "uselang" to language,
+                    "type" to "item",
+                    "limit" to "45",
+                    "format" to "json"
+                )
+            )
+            return JSONObject(get(url)).optJSONArray("search").idsFromSearch()
+        }
+        return request("uk").ifEmpty { request("en") }
+    }
+
+    private fun wikidataSuggestions(query: String): List<String> {
+        fun request(language: String): List<String> {
+            val url = buildUrl(
+                "https://www.wikidata.org/w/api.php",
+                mapOf(
+                    "action" to "wbsearchentities",
+                    "search" to query,
+                    "language" to language,
+                    "uselang" to language,
+                    "type" to "item",
+                    "limit" to "10",
+                    "format" to "json"
+                )
+            )
+            val array = JSONObject(get(url)).optJSONArray("search") ?: JSONArray()
+            return buildList {
+                for (index in 0 until array.length()) {
+                    val item = array.optJSONObject(index) ?: continue
+                    val label = item.optString("label")
+                    val description = item.optString("description")
+                    val gameLike = description.isBlank() ||
+                        description.contains("відеогр", true) ||
+                        description.contains("video game", true) ||
+                        description.contains("game series", true)
+                    if (label.isNotBlank() && gameLike) add(label)
+                }
+            }
+        }
+
+        val uk = request("uk")
+        val en = if (uk.size < 6) request("en") else emptyList()
+        return (uk + en).distinctBy { it.lowercase() }.take(8)
+    }
+
+    private suspend fun resolveWikipediaDetails(links: Map<String, WikiLink>): Map<String, WikipediaDetails> {
+        if (links.isEmpty()) return emptyMap()
+        val result = linkedMapOf<String, WikipediaDetails>()
+        links.values.groupBy(WikiLink::language).forEach { (language, languageLinks) ->
+            val byTitle = fetchWikipediaDetails(language, languageLinks.map(WikiLink::title).distinct())
+            links.filterValues { it.language == language }.forEach { (id, link) ->
+                byTitle[link.title]?.let { result[id] = it }
+            }
+        }
+        return result
+    }
+
+    private fun fetchWikipediaDetails(language: String, titles: List<String>): Map<String, WikipediaDetails> {
+        val result = linkedMapOf<String, WikipediaDetails>()
+        titles.chunked(20).forEach { chunk ->
+            val url = buildUrl(
+                "https://$language.wikipedia.org/w/api.php",
+                mapOf(
+                    "action" to "query",
+                    "prop" to "extracts|pageimages",
+                    "titles" to chunk.joinToString("|"),
+                    "redirects" to "1",
+                    "exintro" to "1",
+                    "explaintext" to "1",
+                    "exsentences" to "6",
+                    "piprop" to "thumbnail",
+                    "pithumbsize" to "900",
+                    "formatversion" to "2",
+                    "format" to "json"
+                )
+            )
+            val root = JSONObject(get(url))
+            val query = root.optJSONObject("query") ?: return@forEach
+            val aliases = mutableMapOf<String, String>()
+            query.optJSONArray("normalized")?.let { array ->
+                for (index in 0 until array.length()) {
+                    val item = array.optJSONObject(index) ?: continue
+                    aliases[item.optString("from")] = item.optString("to")
+                }
+            }
+            query.optJSONArray("redirects")?.let { array ->
+                for (index in 0 until array.length()) {
+                    val item = array.optJSONObject(index) ?: continue
+                    aliases[item.optString("from")] = item.optString("to")
+                }
+            }
+
+            val pages = query.optJSONArray("pages") ?: JSONArray()
+            for (index in 0 until pages.length()) {
+                val page = pages.optJSONObject(index) ?: continue
+                val title = page.optString("title")
+                val extract = page.optString("extract")
+                    .replace(Regex("\\s+"), " ")
+                    .trim()
+                    .take(1800)
+                val imageUrl = page.optJSONObject("thumbnail")?.optString("source")
+                    ?.takeIf(String::isNotBlank)
+                if (title.isNotBlank()) result[title] = WikipediaDetails(extract, imageUrl)
+            }
+
+            aliases.forEach { (from, to) -> result[to]?.let { result[from] = it } }
+        }
+        return result
+    }
+
+    private fun wikiLink(entity: JSONObject?): WikiLink? {
+        val sitelinks = entity?.optJSONObject("sitelinks") ?: return null
+        val ukTitle = sitelinks.optJSONObject("ukwiki")?.optString("title").orEmpty()
+        if (ukTitle.isNotBlank()) return WikiLink("uk", ukTitle)
+        val enTitle = sitelinks.optJSONObject("enwiki")?.optString("title").orEmpty()
+        return enTitle.takeIf(String::isNotBlank)?.let { WikiLink("en", it) }
     }
 
     private suspend fun searchRawg(query: String, key: String): List<Game> {
@@ -211,6 +337,26 @@ class GameRepository(private val store: LocalStore) {
                 )
             }
         }.filter { it.title.isNotBlank() }
+    }
+
+    private fun rawgSuggestions(query: String, key: String): List<String> {
+        val url = buildUrl(
+            "https://api.rawg.io/api/games",
+            mapOf(
+                "key" to key.trim(),
+                "search" to query,
+                "search_precise" to "true",
+                "page_size" to "8"
+            )
+        )
+        val array = JSONObject(get(url)).optJSONArray("results") ?: JSONArray()
+        return buildList {
+            for (index in 0 until array.length()) {
+                array.optJSONObject(index)?.optString("name")
+                    ?.takeIf(String::isNotBlank)
+                    ?.let(::add)
+            }
+        }
     }
 
     private suspend fun enrichSteamRatings(games: List<Game>): List<Game> = coroutineScope {
@@ -262,7 +408,7 @@ class GameRepository(private val store: LocalStore) {
             val key = candidate.title.lowercase().replace(Regex("[^a-zа-яіїєґ0-9]+"), "") + ":${candidate.year ?: 0}"
             val existing = map[key]
             map[key] = if (existing == null) candidate else existing.copy(
-                description = existing.description.ifBlank { candidate.description },
+                description = listOf(existing.description, candidate.description).maxByOrNull(String::length).orEmpty(),
                 platforms = (existing.platforms + candidate.platforms).distinct(),
                 genres = (existing.genres + candidate.genres).distinct(),
                 coverUrl = existing.coverUrl ?: candidate.coverUrl,
@@ -332,19 +478,24 @@ class GameRepository(private val store: LocalStore) {
     }
 
     private fun commonsImageUrl(filename: String): String =
-        "https://commons.wikimedia.org/wiki/Special:FilePath/${encode(filename)}?width=600"
+        "https://commons.wikimedia.org/wiki/Special:FilePath/${encodePath(filename)}?width=900"
+
+    private fun steamPortraitUrl(appId: String): String =
+        "https://shared.cloudflare.steamstatic.com/store_item_assets/steam/apps/${encodePath(appId)}/library_600x900_2x.jpg"
 
     private fun buildUrl(base: String, parameters: Map<String, String>): String =
         base + "?" + parameters.entries.joinToString("&") { "${encode(it.key)}=${encode(it.value)}" }
 
     private fun encode(value: String): String = URLEncoder.encode(value, StandardCharsets.UTF_8.toString())
+    private fun encodePath(value: String): String = encode(value).replace("+", "%20")
 
     private fun get(url: String): String {
         val connection = URI(url).toURL().openConnection() as HttpURLConnection
         return try {
             connection.requestMethod = "GET"
             connection.connectTimeout = 12_000
-            connection.readTimeout = 18_000
+            connection.readTimeout = 20_000
+            connection.instanceFollowRedirects = true
             connection.setRequestProperty("User-Agent", userAgent)
             connection.setRequestProperty("Accept", "application/json")
             val code = connection.responseCode
@@ -396,7 +547,7 @@ class GameRepository(private val store: LocalStore) {
                         id = item.getString("id"),
                         title = item.getString("title"),
                         description = item.optString("description"),
-                        year = item.optInt("year").takeIf { item.has("year") },
+                        year = item.nullableInt("year"),
                         platforms = item.optJSONArray("platforms").toStrings(),
                         genres = item.optJSONArray("genres").toStrings(),
                         coverUrl = item.optString("coverUrl").takeIf { it.isNotBlank() && it != "null" },
@@ -404,8 +555,8 @@ class GameRepository(private val store: LocalStore) {
                             .getOrDefault(GameSource.LOCAL_FALLBACK),
                         sourceOrder = item.optInt("sourceOrder", index),
                         relevance = item.optDouble("relevance", 0.0),
-                        ratingPercent = item.optInt("ratingPercent").takeIf { item.has("ratingPercent") },
-                        ratingCount = item.optInt("ratingCount").takeIf { item.has("ratingCount") },
+                        ratingPercent = item.nullableInt("ratingPercent"),
+                        ratingCount = item.nullableInt("ratingCount"),
                         steamAppId = item.optString("steamAppId").takeIf { it.isNotBlank() && it != "null" },
                     )
                 )
@@ -435,9 +586,16 @@ class GameRepository(private val store: LocalStore) {
         }
     }
 
-    private fun Throwable.compactMessage(): String = message?.take(80) ?: "Невідома помилка"
+    private fun JSONObject.nullableInt(key: String): Int? =
+        if (!has(key) || isNull(key)) null else optInt(key)
+
+    private fun Throwable.compactMessage(): String = message?.take(100) ?: "Невідома помилка"
+
+    private data class WikiLink(val language: String, val title: String)
+    private data class WikipediaDetails(val extract: String, val imageUrl: String?)
 
     companion object {
+        private const val SEARCH_CACHE_VERSION = "v2"
         private const val SEARCH_CACHE_TTL = 12L * 60L * 60L * 1000L
     }
 }
