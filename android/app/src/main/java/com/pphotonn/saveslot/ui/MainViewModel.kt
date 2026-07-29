@@ -1,6 +1,7 @@
 package com.pphotonn.saveslot.ui
 
 import android.app.Application
+import android.content.Context
 import androidx.lifecycle.AndroidViewModel
 import androidx.lifecycle.viewModelScope
 import com.pphotonn.saveslot.data.GameRepository
@@ -38,7 +39,17 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
     val state: StateFlow<AppUiState> = _state.asStateFlow()
 
     init {
-        discover()
+        migrateSearchCache(application)
+    }
+
+    private fun migrateSearchCache(application: Application) {
+        val preferences = application.getSharedPreferences("save_slot", Context.MODE_PRIVATE)
+        val schema = preferences.getInt("search_cache_schema", 0)
+        if (schema < SEARCH_CACHE_SCHEMA) {
+            store.clearCache()
+            preferences.edit().putInt("search_cache_schema", SEARCH_CACHE_SCHEMA).apply()
+            _state.update { it.copy(cacheBytes = 0L) }
+        }
     }
 
     fun setScreen(screen: AppScreen) = _state.update { it.copy(screen = screen, suggestions = emptyList()) }
@@ -62,7 +73,7 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
     fun chooseSuggestion(value: String) {
         suggestionJob?.cancel()
         _state.update { it.copy(query = value, suggestions = emptyList()) }
-        runSearch(value, isDiscover = false)
+        runSearch(value)
     }
 
     fun search() {
@@ -70,49 +81,23 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         val query = _state.value.query.trim()
         _state.update { it.copy(suggestions = emptyList()) }
         if (query.isBlank()) {
-            discover()
-            return
-        }
-        runSearch(query, isDiscover = false)
-    }
-
-    fun discover() {
-        suggestionJob?.cancel()
-        searchJob?.cancel()
-        searchJob = viewModelScope.launch {
+            searchJob?.cancel()
             _state.update {
                 it.copy(
-                    loading = true,
-                    suggestions = emptyList(),
-                    sourceHealth = listOf(SourceHealth("Онлайн-джерела", HealthState.LOADING, "Оновлення каталогу")),
-                    notice = null,
+                    loading = false,
+                    results = emptyList(),
+                    visibleResults = emptyList(),
+                    featuredFive = emptyList(),
+                    sourceHealth = emptyList(),
+                    notice = "Введіть назву гри",
                 )
             }
-            runCatching { repository.discover(_state.value.settings) }
-                .onSuccess { response ->
-                    _state.update {
-                        it.copy(
-                            loading = false,
-                            results = response.games,
-                            sourceHealth = response.health,
-                            notice = if (response.fromCache) "Каталог завантажено з кешу" else null,
-                            screen = AppScreen.HOME,
-                        ).recalculate()
-                    }
-                }
-                .onFailure { error ->
-                    _state.update {
-                        it.copy(
-                            loading = false,
-                            sourceHealth = listOf(SourceHealth("Онлайн-джерела", HealthState.ERROR, error.message ?: "Помилка")),
-                            notice = "Не вдалося оновити каталог",
-                        )
-                    }
-                }
+            return
         }
+        runSearch(query)
     }
 
-    private fun runSearch(query: String, isDiscover: Boolean) {
+    private fun runSearch(query: String) {
         searchJob?.cancel()
         searchJob = viewModelScope.launch {
             _state.update {
@@ -121,7 +106,7 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
                     suggestions = emptyList(),
                     sourceHealth = listOf(SourceHealth("Пошук", HealthState.LOADING, query)),
                     notice = null,
-                    screen = if (isDiscover) AppScreen.HOME else AppScreen.SEARCH,
+                    screen = AppScreen.SEARCH,
                 )
             }
             runCatching { repository.search(query, _state.value.settings) }
@@ -175,7 +160,7 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
     fun selectRandom() {
         val candidates = _state.value.visibleResults
         if (candidates.isEmpty()) {
-            _state.update { it.copy(notice = "Немає ігор за поточними фільтрами") }
+            _state.update { it.copy(notice = "Спочатку виконайте пошук") }
             return
         }
         selectGame(candidates.random())
@@ -184,7 +169,7 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
     fun randomFive() {
         val candidates = _state.value.visibleResults
         if (candidates.isEmpty()) {
-            _state.update { it.copy(notice = "Немає ігор за поточними фільтрами") }
+            _state.update { it.copy(notice = "Спочатку виконайте пошук") }
             return
         }
         val platform = _state.value.filters.platform
@@ -261,6 +246,10 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
     }
 
     fun clearNotice() = _state.update { it.copy(notice = null) }
+
+    companion object {
+        private const val SEARCH_CACHE_SCHEMA = 3
+    }
 }
 
 data class AppUiState(
