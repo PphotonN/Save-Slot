@@ -14,6 +14,7 @@ import com.pphotonn.saveslot.model.PlayStatus
 import com.pphotonn.saveslot.model.SearchFilters
 import com.pphotonn.saveslot.model.SourceHealth
 import kotlinx.coroutines.Job
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
@@ -24,6 +25,7 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
     private val store = LocalStore(application)
     private val repository = GameRepository(store)
     private var searchJob: Job? = null
+    private var suggestionJob: Job? = null
     private var randomSeed = 1
 
     private val _state = MutableStateFlow(
@@ -39,12 +41,34 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         discover()
     }
 
-    fun setScreen(screen: AppScreen) = _state.update { it.copy(screen = screen) }
+    fun setScreen(screen: AppScreen) = _state.update { it.copy(screen = screen, suggestions = emptyList()) }
 
-    fun setQuery(value: String) = _state.update { it.copy(query = value) }
+    fun setQuery(value: String) {
+        suggestionJob?.cancel()
+        _state.update { it.copy(query = value, suggestions = emptyList()) }
+        val cleanQuery = value.trim()
+        if (cleanQuery.length < 2) return
+
+        suggestionJob = viewModelScope.launch {
+            delay(320)
+            val settings = _state.value.settings
+            val suggestions = runCatching { repository.suggest(cleanQuery, settings) }.getOrDefault(emptyList())
+            if (_state.value.query.trim() == cleanQuery) {
+                _state.update { it.copy(suggestions = suggestions.filterNot { title -> title.equals(cleanQuery, true) }) }
+            }
+        }
+    }
+
+    fun chooseSuggestion(value: String) {
+        suggestionJob?.cancel()
+        _state.update { it.copy(query = value, suggestions = emptyList()) }
+        runSearch(value, isDiscover = false)
+    }
 
     fun search() {
+        suggestionJob?.cancel()
         val query = _state.value.query.trim()
+        _state.update { it.copy(suggestions = emptyList()) }
         if (query.isBlank()) {
             discover()
             return
@@ -53,11 +77,13 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
     }
 
     fun discover() {
+        suggestionJob?.cancel()
         searchJob?.cancel()
         searchJob = viewModelScope.launch {
             _state.update {
                 it.copy(
                     loading = true,
+                    suggestions = emptyList(),
                     sourceHealth = listOf(SourceHealth("Онлайн-джерела", HealthState.LOADING, "Оновлення каталогу")),
                     notice = null,
                 )
@@ -92,6 +118,7 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
             _state.update {
                 it.copy(
                     loading = true,
+                    suggestions = emptyList(),
                     sourceHealth = listOf(SourceHealth("Пошук", HealthState.LOADING, query)),
                     notice = null,
                     screen = if (isDiscover) AppScreen.HOME else AppScreen.SEARCH,
@@ -139,6 +166,7 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
                 selectedGame = snapshot,
                 animationNonce = it.animationNonce + 1,
                 featuredFive = emptyList(),
+                suggestions = emptyList(),
                 screen = AppScreen.HOME,
             )
         }
@@ -238,6 +266,7 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
 data class AppUiState(
     val screen: AppScreen = AppScreen.HOME,
     val query: String = "",
+    val suggestions: List<String> = emptyList(),
     val loading: Boolean = false,
     val results: List<Game> = emptyList(),
     val visibleResults: List<Game> = emptyList(),
