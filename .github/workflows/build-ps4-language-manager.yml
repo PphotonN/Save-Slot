@@ -1,0 +1,119 @@
+name: Build PS4 Language Manager
+
+on:
+  pull_request:
+    branches: [main]
+    paths:
+      - 'ps4-language-manager-src.b64'
+      - '.github/workflows/build-ps4-language-manager.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  build:
+    runs-on: ubuntu-22.04
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Restore project sources
+        shell: bash
+        run: |
+          base64 -d ps4-language-manager-src.b64 > "$RUNNER_TEMP/ps4-language-manager-src.tgz"
+          tar -xzf "$RUNNER_TEMP/ps4-language-manager-src.tgz"
+
+      - name: Install build dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y clang lld make git curl python3 unzip p7zip-full
+
+      - name: Download OpenOrbis toolchain
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p "$RUNNER_TEMP/oosdk-extract"
+          URL=$(curl -fsSL https://api.github.com/repos/OpenOrbis/OpenOrbis-PS4-Toolchain/releases/latest | \
+            python3 -c 'import json,sys; d=json.load(sys.stdin); print(next(a["browser_download_url"] for a in d["assets"] if a["name"].endswith(".tar.gz")))')
+          echo "Downloading $URL"
+          curl -fL "$URL" -o "$RUNNER_TEMP/oosdk.tar.gz"
+          tar -xzf "$RUNNER_TEMP/oosdk.tar.gz" -C "$RUNNER_TEMP/oosdk-extract"
+          LINK=$(find "$RUNNER_TEMP/oosdk-extract" -name link.x -type f -print -quit)
+          test -n "$LINK"
+          OO_PS4_TOOLCHAIN=$(dirname "$LINK")
+          chmod +x "$OO_PS4_TOOLCHAIN"/bin/linux/* || true
+          echo "OO_PS4_TOOLCHAIN=$OO_PS4_TOOLCHAIN" >> "$GITHUB_ENV"
+          echo "OpenOrbis root: $OO_PS4_TOOLCHAIN"
+
+      - name: Build GoldHEN language plugin
+        shell: bash
+        run: |
+          set -euo pipefail
+          git clone --depth 1 https://github.com/GoldHEN/GoldHEN_Plugins_SDK.git "$RUNNER_TEMP/goldhen-sdk"
+          make -C "$RUNNER_TEMP/goldhen-sdk" PRINTF=1
+
+          git clone --depth 1 https://github.com/GoldHEN/GoldHEN_Plugins_Repository.git "$RUNNER_TEMP/goldhen-plugins-root"
+          rm -rf "$RUNNER_TEMP/goldhen-plugins-root/plugin_src"
+          git clone --depth 1 https://github.com/KrisztianKende/GoldHEN_Plugins.git "$RUNNER_TEMP/goldhen-plugins-root/plugin_src"
+          mkdir -p "$RUNNER_TEMP/goldhen-plugins-root/bin/plugins/prx_final" "$RUNNER_TEMP/goldhen-plugins-root/bin/plugins/elf_final"
+          export GOLDHEN_SDK="$RUNNER_TEMP/goldhen-sdk"
+          make -C "$RUNNER_TEMP/goldhen-plugins-root/plugin_src/system_language_override"
+          PLUGIN=$(find "$RUNNER_TEMP/goldhen-plugins-root/bin" -name system_language_override.prx -type f -print -quit)
+          test -n "$PLUGIN"
+          cp "$PLUGIN" ps4-language-manager/assets/system_language_override.prx
+          sha256sum ps4-language-manager/assets/system_language_override.prx
+
+      - name: Prepare package assets
+        shell: bash
+        run: |
+          set -euo pipefail
+          cp "$OO_PS4_TOOLCHAIN"/samples/hello_world/sce_module/* ps4-language-manager/sce_module/
+          cp "$OO_PS4_TOOLCHAIN"/samples/hello_world/sce_sys/about/right.sprx ps4-language-manager/sce_sys/about/right.sprx
+          python3 - <<'PY'
+          import struct, zlib
+          w=h=512
+          rows=[]
+          for y in range(h):
+              row=bytearray([0])
+              for x in range(w):
+                  r,g,b,a=13,17,24,255
+                  if 54<x<458 and 54<y<458: r,g,b=25,31,42
+                  if 105<x<407 and 145<y<205: r,g,b=78,181,255
+                  if 105<x<407 and 307<y<367: r,g,b=90,214,145
+                  if 228<x<284 and 205<=y<=307: r,g,b=230,235,242
+                  row += bytes((r,g,b,a))
+              rows.append(bytes(row))
+          raw=b''.join(rows)
+          def chunk(t,d):
+              return struct.pack('>I',len(d))+t+d+struct.pack('>I',zlib.crc32(t+d)&0xffffffff)
+          png=b'\x89PNG\r\n\x1a\n'+chunk(b'IHDR',struct.pack('>IIBBBBB',w,h,8,6,0,0,0))+chunk(b'IDAT',zlib.compress(raw,9))+chunk(b'IEND',b'')
+          open('ps4-language-manager/sce_sys/icon0.png','wb').write(png)
+          PY
+
+      - name: Build PKG
+        shell: bash
+        run: |
+          set -euo pipefail
+          make -C ps4-language-manager clean
+          make -C ps4-language-manager
+          PKG=$(find ps4-language-manager -maxdepth 1 -name '*.pkg' -type f -print -quit)
+          test -s "$PKG"
+          mkdir -p dist
+          cp "$PKG" dist/PS4_Language_Manager_v1.00.pkg
+          cp ps4-language-manager/README.md dist/README.md
+          sha256sum dist/PS4_Language_Manager_v1.00.pkg | tee dist/SHA256SUMS.txt
+          python3 - <<'PY'
+          p='dist/PS4_Language_Manager_v1.00.pkg'
+          d=open(p,'rb').read(16)
+          assert len(d)==16 and any(d), 'empty PKG header'
+          print('PKG header:', d.hex())
+          PY
+
+      - name: Upload package
+        uses: actions/upload-artifact@v4
+        with:
+          name: PS4-Language-Manager-v1.00
+          path: dist/*
+          if-no-files-found: error
+          retention-days: 7
