@@ -19,9 +19,9 @@ import org.robolectric.annotation.Config
  * back, a corrupt file heals itself, and the directory stays bounded.
  */
 @RunWith(AndroidJUnit4::class)
-// Robolectric has no API 37 image yet, and the app targets 37. Bitmap encoding and decoding are the
-// only framework behaviour under test here, so running against 36 is representative.
-@Config(sdk = [36])
+// Bitmap encoding and decoding used by this cache do not depend on API 36. Robolectric platform
+// images lag the Android compile SDK, so the JVM test runs against its latest supported image.
+@Config(sdk = [35])
 class CartridgeDiskCacheTest {
 
     private lateinit var directory: File
