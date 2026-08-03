@@ -25,9 +25,11 @@ jobs:
 
       - name: Set up Android SDK
         uses: android-actions/setup-android@v3
+        with:
+          packages: platform-tools
 
-      - name: Install Android 37 platform
-        run: yes | sdkmanager "platforms;android-37" "build-tools;37.0.0"
+      - name: Install Android 37 preview platform
+        run: yes | sdkmanager --channel=3 "platforms;android-37" "build-tools;36.0.0"
 
       - name: Set up Gradle cache
         uses: gradle/actions/setup-gradle@v4
@@ -41,14 +43,14 @@ jobs:
       - name: Prepare deliverables
         run: |
           mkdir -p artifacts
-          cp android/app/build/outputs/apk/release/app-release.apk artifacts/Save-Slot-1.1.0-native.apk
-          git archive --format=zip --output=artifacts/Save-Slot-1.1.0-source.zip HEAD
+          cp android/app/build/outputs/apk/release/app-release.apk artifacts/Save-Slot-filter-source-build.apk
+          git archive --format=zip --output=artifacts/Save-Slot-filter-source-build-source.zip HEAD
           sha256sum artifacts/* | tee artifacts/SHA256SUMS.txt
 
       - name: Upload APK and source archive
         uses: actions/upload-artifact@v4
         with:
-          name: save-slot-1.1.0-native
+          name: save-slot-filter-source-build
           path: artifacts/*
           if-no-files-found: error
           retention-days: 14
