@@ -28,17 +28,18 @@ import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.saveslot.app.domain.model.Game
 import com.saveslot.app.domain.model.SortOrder
-import com.saveslot.app.ui.components.Dropdown
 import com.saveslot.app.ui.components.GameCard
 import com.saveslot.app.ui.components.InlineStatus
 import com.saveslot.app.ui.components.LocalCartridgePreviews
 import com.saveslot.app.ui.components.SearchField
+import com.saveslot.app.ui.components.SearchableDropdown
 import com.saveslot.app.ui.components.SectionHeading
+import com.saveslot.app.ui.components.SwitchRow
 import com.saveslot.app.ui.components.cardArtwork
 import com.saveslot.app.ui.viewmodel.SearchViewModel
 
 /**
- * Global search with collapsible platform, year, genre and sort refinements.
+ * Global search with searchable platform and genre selectors, year bounds and local result policy.
  *
  * The whole screen is one grid, with the header and filters as full-width spans, so there is a
  * single scroll container and the search field scrolls away with the results.
@@ -61,7 +62,6 @@ fun SearchScreen(
         horizontalArrangement = Arrangement.spacedBy(4.dp),
         verticalArrangement = Arrangement.spacedBy(8.dp),
     ) {
-
         item(span = { GridItemSpan(maxLineSpan) }, key = "search-field") {
             SearchField(
                 query = uiState.query,
@@ -78,8 +78,13 @@ fun SearchScreen(
                 modifier = Modifier.padding(horizontal = 16.dp),
                 action = {
                     TextButton(onClick = viewModel::toggleFilters) {
+                        val count = uiState.filters.activeCount
                         Text(
-                            text = if (uiState.filtersExpanded) "Сховати" else "Фільтри",
+                            text = when {
+                                uiState.filtersExpanded -> "Сховати"
+                                count > 0 -> "Фільтри ($count)"
+                                else -> "Фільтри"
+                            },
                             style = MaterialTheme.typography.labelLarge,
                         )
                     }
@@ -91,19 +96,21 @@ fun SearchScreen(
             AnimatedVisibility(visible = uiState.filtersExpanded) {
                 Column(
                     modifier = Modifier.padding(horizontal = 16.dp, vertical = 8.dp),
-                    verticalArrangement = Arrangement.spacedBy(10.dp),
+                    verticalArrangement = Arrangement.spacedBy(12.dp),
                 ) {
-                    Dropdown(
+                    SearchableDropdown(
                         label = "Платформа",
-                        options = listOf("" to "Усі") + taxonomy.platforms.map { it to it },
+                        options = listOf("" to "Усі платформи") + taxonomy.platforms.map { it to it },
                         selected = uiState.filters.platform,
                         onSelect = { viewModel.onFiltersChange(uiState.filters.copy(platform = it)) },
+                        modifier = Modifier.fillMaxWidth(),
                     )
-                    Dropdown(
+                    SearchableDropdown(
                         label = "Жанр",
-                        options = listOf("" to "Усі") + taxonomy.genres.map { it to it },
+                        options = listOf("" to "Усі жанри") + taxonomy.genres.map { it to it },
                         selected = uiState.filters.genre,
                         onSelect = { viewModel.onFiltersChange(uiState.filters.copy(genre = it)) },
+                        modifier = Modifier.fillMaxWidth(),
                     )
                     Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
                         YearField(
@@ -123,13 +130,36 @@ fun SearchScreen(
                             modifier = Modifier.weight(1f),
                         )
                     }
-                    Dropdown(
+                    SwitchRow(
+                        title = "Ігри без відомого року",
+                        description = "Не приховувати записи, у яких джерела не вказали рік випуску.",
+                        checked = uiState.filters.includeUnknownYear,
+                        onCheckedChange = {
+                            viewModel.onFiltersChange(uiState.filters.copy(includeUnknownYear = it))
+                        },
+                    )
+                    SwitchRow(
+                        title = "Лише з обкладинкою",
+                        description = "Показувати результат після отримання перевіреної або попередньої обкладинки.",
+                        checked = uiState.filters.artworkOnly,
+                        onCheckedChange = {
+                            viewModel.onFiltersChange(uiState.filters.copy(artworkOnly = it))
+                        },
+                    )
+                    SearchableDropdown(
                         label = "Сортування",
                         options = SORT_OPTIONS,
                         selected = uiState.sortOrder.name,
                         onSelect = { viewModel.onSortOrderChange(SortOrder.valueOf(it)) },
+                        modifier = Modifier.fillMaxWidth(),
                     )
-                    OutlinedButton(onClick = viewModel::resetFilters) { Text("Скинути") }
+                    OutlinedButton(
+                        onClick = viewModel::resetFilters,
+                        enabled = uiState.filters.isActive || uiState.sortOrder != SortOrder.Relevance,
+                        modifier = Modifier.fillMaxWidth(),
+                    ) {
+                        Text("Скинути фільтри")
+                    }
                 }
             }
         }
@@ -168,7 +198,6 @@ private fun YearField(
     OutlinedTextField(
         value = value.takeIf { it > 0 }?.toString().orEmpty(),
         onValueChange = { raw ->
-            // Years are four digits at most; ignore anything else the keyboard produces.
             onValueChange(raw.filter(Char::isDigit).take(4).toIntOrNull() ?: 0)
         },
         label = { Text(label) },
@@ -180,6 +209,7 @@ private fun YearField(
 
 private val SORT_OPTIONS = listOf(
     SortOrder.Relevance.name to "Релевантність",
+    SortOrder.CoverFirst.name to "Спочатку з обкладинкою",
     SortOrder.NewestFirst.name to "Спочатку нові",
     SortOrder.OldestFirst.name to "Спочатку старі",
     SortOrder.Title.name to "За назвою",
