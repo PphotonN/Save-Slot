@@ -9,33 +9,21 @@ plugins {
 
 android {
     namespace = "com.saveslot.app"
-    compileSdk = 37
+    compileSdk = 36
 
     defaultConfig {
         applicationId = "com.saveslot.app"
         minSdk = 26
-        targetSdk = 37
-        versionCode = 40
-        versionName = "1.0.0-native"
+        targetSdk = 36
+        versionCode = 41
+        versionName = "1.1.0-native"
     }
 
     androidResources {
         localeFilters += listOf("uk", "en")
     }
 
-    signingConfigs {
-        create("development") {
-            storeFile = rootProject.file("../signing/save-slot-test.keystore")
-            storePassword = "saveslot"
-            keyAlias = "saveslot"
-            keyPassword = "saveslot"
-        }
-    }
-
     buildTypes {
-        debug {
-            signingConfig = signingConfigs.getByName("development")
-        }
         release {
             isMinifyEnabled = true
             isShrinkResources = true
@@ -43,8 +31,6 @@ android {
                 getDefaultProguardFile("proguard-android-optimize.txt"),
                 "proguard-rules.pro",
             )
-            // Development signing: the upstream project ships a test key, not a release key.
-            signingConfig = signingConfigs.getByName("development")
         }
     }
 
