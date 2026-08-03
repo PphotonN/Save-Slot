@@ -1,0 +1,154 @@
+<!doctype html>
+<html lang="uk">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover,user-scalable=no">
+  <meta name="theme-color" content="#111419">
+  <title>Save Slot</title>
+  <link rel="stylesheet" href="style.css">
+</head>
+<body>
+  <div id="app">
+    <header class="console-header">
+      <div class="brand-row">
+        <div class="brand-mark" aria-hidden="true"><span></span></div>
+        <div>
+          <div class="brand">SAVE SLOT</div>
+          <div class="brand-sub">Ігровий архів і особиста колекція</div>
+        </div>
+        <button class="icon-button" id="randomButton" type="button" aria-label="Нова випадкова добірка">↻</button>
+      </div>
+
+      <div class="slot-stage" id="slotStage">
+        <canvas id="slotCanvas" aria-label="Тривимірний картридж у слоті"></canvas>
+        <div class="slot-glass" aria-hidden="true"></div>
+        <div id="activeGameTitle" class="sr-only">NO GAME</div>
+      </div>
+
+      <div class="search-shell">
+        <span class="search-icon" aria-hidden="true">⌕</span>
+        <input id="searchInput" type="search" autocomplete="off" enterkeyhint="search" placeholder="Знайти будь-яку гру…" aria-label="Пошук ігор">
+        <button id="clearSearch" type="button" aria-label="Очистити пошук">×</button>
+      </div>
+      <div id="searchHint" class="search-hint" aria-live="polite"></div>
+    </header>
+
+    <main>
+      <section class="screen active" id="discoverScreen" data-screen="discover">
+        <div class="section-heading">
+          <div>
+            <span class="eyebrow">ДОСЛІДЖЕННЯ</span>
+            <h1>Що оберемо сьогодні?</h1>
+          </div>
+          <button class="text-button" id="refreshDiscover" type="button">Інша добірка</button>
+        </div>
+        <div id="discoverStatus" class="inline-status">Підготовка каталогу…</div>
+        <div class="game-rail" id="discoverRail"></div>
+
+        <div class="section-heading compact">
+          <div>
+            <span class="eyebrow">ОСТАННІ</span>
+            <h2>Продовжити дослідження</h2>
+          </div>
+        </div>
+        <div class="game-rail small" id="recentRail"></div>
+      </section>
+
+      <section class="screen" id="searchScreen" data-screen="search">
+        <div class="section-heading">
+          <div>
+            <span class="eyebrow">ГЛОБАЛЬНИЙ ПОШУК</span>
+            <h1 id="searchTitle">Результати</h1>
+          </div>
+          <button class="filter-toggle" id="filterToggle" type="button" aria-expanded="false" aria-controls="filters">Фільтри</button>
+        </div>
+        <div class="filters" id="filters" hidden>
+          <label>Платформа<select id="platformFilter"><option value="">Усі</option></select></label>
+          <label>Рік від<input id="yearFrom" type="number" inputmode="numeric" min="1950" max="2100" placeholder="1970"></label>
+          <label>Рік до<input id="yearTo" type="number" inputmode="numeric" min="1950" max="2100" placeholder="2026"></label>
+          <label>Жанр<select id="genreFilter"><option value="">Усі</option></select></label>
+          <label>Сортування<select id="sortFilter"><option value="relevance">Релевантність</option><option value="yearDesc">Спочатку нові</option><option value="yearAsc">Спочатку старі</option><option value="title">За назвою</option></select></label>
+          <button class="secondary-button" id="resetFilters" type="button">Скинути</button>
+        </div>
+        <div id="searchStatus" class="inline-status">Введи назву гри у поле вище.</div>
+        <div class="game-grid" id="searchGrid"></div>
+      </section>
+
+      <section class="screen" id="detailScreen" data-screen="detail">
+        <button class="back-button" id="detailBack" type="button">← Назад</button>
+        <article id="detailContent"></article>
+      </section>
+
+      <section class="screen" id="collectionScreen" data-screen="collection">
+        <div class="section-heading">
+          <div><span class="eyebrow">ОСОБИСТИЙ АРХІВ</span><h1>Колекція</h1></div>
+        </div>
+        <div class="status-tabs" id="collectionFilters">
+          <button class="active" data-status="">Усе</button>
+          <button data-status="playing">Граю</button>
+          <button data-status="planned">Планую</button>
+          <button data-status="completed">Пройдено</button>
+          <button data-status="owned">Маю</button>
+        </div>
+        <div id="collectionEmpty" class="empty-state" hidden>
+          <strong>Колекція ще порожня</strong>
+          <span>Відкрий гру й натисни «Додати до колекції».</span>
+        </div>
+        <div class="game-grid" id="collectionGrid"></div>
+      </section>
+
+      <section class="screen" id="notesScreen" data-screen="notes">
+        <div class="section-heading"><div><span class="eyebrow">ОСОБИСТИЙ ЖУРНАЛ</span><h1>Нотатки</h1></div></div>
+        <div id="notesEmpty" class="empty-state" hidden>
+          <strong>Нотаток поки немає</strong>
+          <span>Додай враження, технічну примітку або замітку про проходження на сторінці гри.</span>
+        </div>
+        <div id="notesList" class="notes-list"></div>
+      </section>
+
+      <section class="screen" id="settingsScreen" data-screen="settings">
+        <div class="section-heading"><div><span class="eyebrow">СИСТЕМА</span><h1>Налаштування</h1></div></div>
+        <div class="settings-group">
+          <h2>Джерела даних</h2>
+          <div class="source-row"><div><strong>Wikidata</strong><span>Назви, платформи, роки, розробники та зв’язки</span></div><i id="wikidataState">—</i></div>
+          <div class="source-row"><div><strong>Wikipedia</strong><span>Описи й сторінки ігор</span></div><i id="wikipediaState">—</i></div>
+          <div class="source-row"><div><strong>Libretro Thumbnails</strong><span>Платформні обкладинки та ігрові скріншоти для консольних релізів</span></div><i id="libretroState">—</i></div>
+          <div class="source-row"><div><strong>Steam</strong><span>Пошук ПК-релізів за назвою, обкладинки та скріншоти</span></div><i id="steamState">—</i></div>
+          <div class="source-row"><div><strong>GOG</strong><span>Додаткові вертикальні обкладинки ПК-релізів</span></div><i id="gogState">—</i></div>
+          <div class="source-row"><div><strong>VNDB</strong><span>Обкладинки та скріншоти візуальних новел</span></div><i id="vndbState">—</i></div>
+          <div class="source-row"><div><strong>PCGamingWiki</strong><span>Резервні обкладинки ПК-ігор</span></div><i id="pcgamingwikiState">—</i></div>
+          <div class="source-row"><div><strong>Wikimedia</strong><span>Резервні офіційні зображення</span></div><i id="wikimediaState">—</i></div>
+          <div class="source-row"><div><strong>Останнє оновлення</strong><span id="lastUpdate">Ще не виконувалось</span></div></div>
+        </div>
+        <div class="settings-group">
+          <h2>Відчуття слота</h2>
+          <label class="switch-row"><span><strong>Тактильний відгук</strong><small>Два короткі хаптік-кліки під час вставляння та один під час витягання</small></span><input id="hapticsToggle" type="checkbox" checked></label>
+          <label class="switch-row"><span><strong>Скорочені анімації</strong><small>Менше руху під час швидкого перегляду</small></span><input id="motionToggle" type="checkbox"></label>
+          <button class="secondary-button wide" id="testHapticsButton" type="button">Перевірити хаптік-відгук</button>
+        </div>
+        <div class="settings-group">
+          <h2>Локальні дані</h2>
+          <div class="storage-line"><span>Кеш метаданих</span><strong id="cacheSize">0 КБ</strong></div>
+          <button class="secondary-button wide" id="clearCacheButton" type="button">Очистити кеш метаданих</button>
+          <p class="helper">Колекція й нотатки під час очищення кешу не видаляються.</p>
+          <button class="danger-button wide" id="clearPersonalButton" type="button">Видалити колекцію та нотатки</button>
+        </div>
+        <div class="settings-group about">
+          <strong>Save Slot r39 — Stability Audit Build</strong>
+          <span>Єдина база знань про ігри, особиста колекція та нотатник.</span>
+        </div>
+      </section>
+    </main>
+
+    <nav class="bottom-nav" aria-label="Основна навігація">
+      <button class="active" data-nav="discover"><span>◈</span><small>Головна</small></button>
+      <button data-nav="search"><span>⌕</span><small>Пошук</small></button>
+      <button data-nav="collection"><span>▤</span><small>Колекція</small></button>
+      <button data-nav="notes"><span>✎</span><small>Нотатки</small></button>
+      <button data-nav="settings"><span>⚙</span><small>Система</small></button>
+    </nav>
+  </div>
+  <script src="assets/model-data.js"></script>
+  <script src="app.js"></script>
+</body>
+</html>
