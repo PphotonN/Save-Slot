@@ -4,67 +4,23 @@ import kotlin.time.Clock
 import kotlinx.coroutines.TimeoutCancellationException
 import kotlinx.coroutines.async
 import kotlinx.coroutines.awaitAll
+import kotlinx.coroutines.channels.Channel
 import kotlinx.coroutines.coroutineScope
+import kotlinx.coroutines.launch
+import kotlinx.coroutines.supervisorScope
 import kotlinx.coroutines.withTimeout
 
 /**
- * Runs artwork providers with per-provider timeouts, failure cooldowns and tiered fan-out.
+ * Runs artwork providers with per-provider timeouts, adaptive ordering and tiered fan-out.
  *
- * Artwork lookup is a best-effort race against eight third-party services of wildly varying
- * reliability. Two behaviours matter:
- *
- *  - **Tiers.** Providers in the same tier run concurrently and the first acceptable answer in
- *    tier order wins; later tiers only run if the earlier ones came up empty. That keeps the fast,
- *    high-quality sources (Libretro, storefronts) ahead of the slow scraping fallbacks without
- *    serialising everything.
- *  - **Cooldowns.** A provider that fails twice in a row is benched for a while, so one dead host
- *    cannot keep costing every subsequent lookup its full timeout.
+ * Providers within one quality tier race each other. The first acceptable answer returns
+ * immediately and cancels the remaining work, instead of waiting for the slowest timeout. Provider
+ * reliability and latency only reorder peers inside a tier, so a fast generic wiki result never
+ * jumps ahead of a release-accurate source from an earlier tier.
  */
-class ProviderChain(private val clock: Clock = Clock.System) {
+class ProviderChain(clock: Clock = Clock.System) {
 
-    private val health = mutableMapOf<String, Health>()
-    private val lock = Any()
-
-    private data class Health(
-        var successes: Int = 0,
-        var failures: Int = 0,
-        var consecutiveFailures: Int = 0,
-        var latencyMillis: Double = 900.0,
-        var cooldownUntil: Long = 0L,
-    )
-
-    private fun healthOf(id: String): Health = synchronized(lock) { health.getOrPut(id) { Health() } }
-
-    fun isAvailable(id: String): Boolean =
-        healthOf(id).let { it.cooldownUntil <= clock.now().toEpochMilliseconds() }
-
-    private fun record(id: String, outcome: Outcome, elapsedMillis: Long) {
-        val entry = healthOf(id)
-        synchronized(lock) {
-            entry.latencyMillis = entry.latencyMillis * 0.72 + elapsedMillis * 0.28
-            when (outcome) {
-                Outcome.Success -> {
-                    entry.successes++
-                    entry.consecutiveFailures = 0
-                    entry.cooldownUntil = 0L
-                }
-                // A clean "nothing here" is not a fault: many providers simply do not carry a
-                // given game, and benching them for that would lose real hits later.
-                Outcome.Miss -> Unit
-                Outcome.Timeout, Outcome.Error -> {
-                    entry.failures++
-                    entry.consecutiveFailures++
-                    if (entry.consecutiveFailures >= 2) {
-                        val multiplier = minOf(4, entry.consecutiveFailures - 1)
-                        entry.cooldownUntil =
-                            clock.now().toEpochMilliseconds() + COOLDOWN_BASE_MS * multiplier
-                    }
-                }
-            }
-        }
-    }
-
-    private enum class Outcome { Success, Miss, Timeout, Error }
+    private val health = ProviderHealthRegistry(clock)
 
     /** Runs one provider under its own timeout, returning [fallback] on timeout or failure. */
     private suspend fun <T> execute(
@@ -74,27 +30,35 @@ class ProviderChain(private val clock: Clock = Clock.System) {
         accept: (T) -> Boolean,
         block: suspend () -> T,
     ): T {
-        if (!isAvailable(id)) return fallback
-        val started = clock.now().toEpochMilliseconds()
+        if (!health.isAvailable(id)) return fallback
+        val started = Clock.System.now().toEpochMilliseconds()
         return try {
             val value = withTimeout(timeoutMillis) { block() }
-            val outcome = if (accept(value)) Outcome.Success else Outcome.Miss
-            record(id, outcome, clock.now().toEpochMilliseconds() - started)
+            val outcome = if (accept(value)) ProviderOutcome.Success else ProviderOutcome.Miss
+            health.record(id, outcome, Clock.System.now().toEpochMilliseconds() - started)
             value
         } catch (timeout: TimeoutCancellationException) {
-            record(id, Outcome.Timeout, clock.now().toEpochMilliseconds() - started)
+            health.record(
+                id,
+                ProviderOutcome.Timeout,
+                Clock.System.now().toEpochMilliseconds() - started,
+            )
             fallback
         } catch (cancellation: kotlinx.coroutines.CancellationException) {
             throw cancellation
         } catch (error: Throwable) {
-            record(id, Outcome.Error, clock.now().toEpochMilliseconds() - started)
+            health.record(
+                id,
+                ProviderOutcome.Error,
+                Clock.System.now().toEpochMilliseconds() - started,
+            )
             fallback
         }
     }
 
     /**
      * Resolves the first acceptable box art across [tiers]. Providers within a tier run in
-     * parallel; tier order decides which answer wins when several succeed.
+     * parallel; later tiers only start when the current tier has no acceptable result.
      */
     suspend fun firstBoxArt(
         tiers: List<List<BoxArtProvider>>,
@@ -104,33 +68,61 @@ class ProviderChain(private val clock: Clock = Clock.System) {
         for (tier in tiers) {
             val eligible = tier.filter { it.supports(game, platform) }
             if (eligible.isEmpty()) continue
-            // When every provider in the tier is cooling down, still try the first one: a total
-            // stall is worse than one slow call, and a success clears the cooldown.
-            val batch = eligible.filter { isAvailable(it.id) }.ifEmpty { eligible.take(1) }
-            val results = coroutineScope {
-                batch.map { provider ->
-                    async {
-                        execute(
-                            id = provider.id,
-                            timeoutMillis = provider.timeoutMillis,
-                            fallback = null,
-                            accept = { url: String? -> !url.isNullOrEmpty() },
-                        ) { provider.boxArt(game, platform) }
-                    }
-                }.awaitAll()
-            }
-            results.forEachIndexed { index, url ->
-                if (!url.isNullOrEmpty()) {
-                    return MediaResult(value = url, source = batch[index].id, platform = platform)
-                }
-            }
+
+            val ordered = health.order(eligible) { it.id }
+            // When every provider in the tier is cooling down, probe the best candidate rather than
+            // stalling the entire resolver. A successful probe clears its cooldown.
+            val batch = ordered.filter { health.isAvailable(it.id) }.ifEmpty { ordered.take(1) }
+            val result = raceBoxArt(batch, game, platform)
+            if (result != null) return result
         }
         return null
     }
 
+    private suspend fun raceBoxArt(
+        providers: List<BoxArtProvider>,
+        game: com.saveslot.app.domain.model.Game,
+        platform: String,
+    ): MediaResult<String>? = supervisorScope {
+        if (providers.isEmpty()) return@supervisorScope null
+
+        val completions = Channel<Pair<BoxArtProvider, String?>>(capacity = providers.size)
+        val jobs = providers.map { provider ->
+            launch {
+                val value = execute(
+                    id = provider.id,
+                    timeoutMillis = provider.timeoutMillis,
+                    fallback = null,
+                    accept = { url: String? -> !url.isNullOrEmpty() },
+                ) { provider.boxArt(game, platform) }
+                completions.trySend(provider to value)
+            }
+        }
+
+        try {
+            var remaining = providers.size
+            while (remaining > 0) {
+                val (provider, url) = completions.receive()
+                remaining--
+                if (!url.isNullOrEmpty()) {
+                    jobs.forEach { if (it.isActive) it.cancel() }
+                    return@supervisorScope MediaResult(
+                        value = url,
+                        source = provider.id,
+                        platform = platform,
+                    )
+                }
+            }
+            null
+        } finally {
+            jobs.forEach { if (it.isActive) it.cancel() }
+            completions.close()
+        }
+    }
+
     /**
      * Collects screenshots from [providers], two at a time, until [maxItems] distinct URLs are
-     * gathered. Unlike box art, more sources are simply better here, so results accumulate.
+     * gathered. Results accumulate because different sources often contain different scenes.
      */
     suspend fun collectScreenshots(
         providers: List<ScreenshotProvider>,
@@ -140,11 +132,15 @@ class ProviderChain(private val clock: Clock = Clock.System) {
     ): MediaResult<List<String>> {
         val collected = LinkedHashSet<String>()
         val sources = LinkedHashSet<String>()
-        val eligible = providers.filter { it.supports(game, platform) }
-        for (index in eligible.indices step 2) {
-            val batch = eligible.subList(index, minOf(index + 2, eligible.size))
-                .filter { isAvailable(it.id) }
+        val eligible = health.order(
+            providers.filter { it.supports(game, platform) },
+        ) { it.id }
+
+        for (index in eligible.indices step SCREENSHOT_BATCH_SIZE) {
+            val group = eligible.subList(index, minOf(index + SCREENSHOT_BATCH_SIZE, eligible.size))
+            val batch = group.filter { health.isAvailable(it.id) }.ifEmpty { group.take(1) }
             if (batch.isEmpty()) continue
+
             val results = coroutineScope {
                 batch.map { provider ->
                     async {
@@ -165,6 +161,7 @@ class ProviderChain(private val clock: Clock = Clock.System) {
             }
             if (collected.size >= maxItems) break
         }
+
         return MediaResult(
             value = collected.take(maxItems),
             source = sources.joinToString("+").ifEmpty { null },
@@ -173,6 +170,6 @@ class ProviderChain(private val clock: Clock = Clock.System) {
     }
 
     private companion object {
-        const val COOLDOWN_BASE_MS = 12_000L
+        const val SCREENSHOT_BATCH_SIZE = 2
     }
 }
