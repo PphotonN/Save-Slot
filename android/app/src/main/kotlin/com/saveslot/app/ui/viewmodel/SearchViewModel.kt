@@ -2,16 +2,13 @@ package com.saveslot.app.ui.viewmodel
 
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
-import com.saveslot.app.core.text.PlatformNames
-import com.saveslot.app.core.text.normalizeLoose
 import com.saveslot.app.data.repository.GameRepository
 import com.saveslot.app.data.repository.TaxonomyRepository
 import com.saveslot.app.domain.model.Game
 import com.saveslot.app.domain.model.SearchFilters
 import com.saveslot.app.domain.model.SortOrder
 import com.saveslot.app.domain.model.Taxonomy
-import java.text.Collator
-import java.util.Locale
+import com.saveslot.app.domain.search.SearchResultRefiner
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.FlowPreview
 import kotlinx.coroutines.Job
@@ -42,12 +39,10 @@ data class SearchUiState(
 )
 
 /**
- * Global search over Wikidata, with client-side filtering and sorting on top.
+ * Coordinates global search and exposes immutable UI state.
  *
- * Typing debounces into a network search, but filter and sort changes re-render the *existing*
- * results immediately and only trigger a new search after a further pause. Refetching on every
- * dropdown change would be both slow and wasteful, since most refinements only narrow what is
- * already on screen.
+ * Filtering, sorting and query matching live in [SearchResultRefiner], keeping this ViewModel focused
+ * on orchestration, cancellation and asynchronous artwork updates.
  */
 @OptIn(FlowPreview::class)
 class SearchViewModel(
@@ -58,23 +53,14 @@ class SearchViewModel(
     private val _uiState = MutableStateFlow(SearchUiState())
     val uiState: StateFlow<SearchUiState> = _uiState.asStateFlow()
 
-    /**
-     * All results as fetched; [uiState].results is this list filtered and sorted.
-     *
-     * Written from several artwork coroutines at once, so access goes through [resultMutex].
-     */
+    /** All fetched results; [uiState].results is this list refined for presentation. */
     private var rawResults: List<Game> = emptyList()
     private val resultMutex = Mutex()
 
     private val queryInput = MutableStateFlow("")
     private val filterInput = MutableStateFlow(SearchFilters())
 
-    /**
-     * Coalesces re-filter requests from artwork arriving.
-     *
-     * `DROP_OLDEST` with a single slot means a burst of covers collapses into one refresh rather
-     * than queueing one pass over the results per cover.
-     */
+    /** Coalesces a burst of artwork arrivals into one result refinement pass. */
     private val artworkRefreshes = MutableSharedFlow<Unit>(
         replay = 0,
         extraBufferCapacity = 1,
@@ -104,11 +90,14 @@ class SearchViewModel(
                 .distinctUntilChanged()
                 .collect { filters ->
                     val query = _uiState.value.query
-                    if (query.isNotBlank() || filters.isActive) runSearch(query, filters)
+                    if (query.isNotBlank() || filters.hasRemoteCriteria) {
+                        runSearch(query, filters)
+                    } else {
+                        applyFilterAndSort()
+                    }
                 }
         }
         viewModelScope.launch {
-            // One refresh per burst of resolved covers, rather than one per cover.
             artworkRefreshes.debounce(ARTWORK_REFRESH_MILLIS).collect { applyFilterAndSort() }
         }
     }
@@ -116,7 +105,7 @@ class SearchViewModel(
     fun onQueryChange(query: String) {
         _uiState.update { it.copy(query = query) }
         queryInput.value = query.trim()
-        if (query.isBlank() && !_uiState.value.filters.isActive) {
+        if (query.isBlank() && !_uiState.value.filters.hasRemoteCriteria) {
             viewModelScope.launch { resultMutex.withLock { rawResults = emptyList() } }
             _uiState.update {
                 it.copy(results = emptyList(), status = "Введи назву гри або обери фільтри.")
@@ -124,19 +113,17 @@ class SearchViewModel(
         }
     }
 
-    /** Enter on the keyboard searches at once rather than waiting out the debounce. */
+    /** Enter on the keyboard searches immediately rather than waiting for debounce. */
     fun onQuerySubmit() {
         val query = _uiState.value.query.trim()
-        if (query.isBlank() && !_uiState.value.filters.isActive) return
+        if (query.isBlank() && !_uiState.value.filters.hasRemoteCriteria) return
         viewModelScope.launch { runSearch(query, _uiState.value.filters) }
     }
 
     fun onFiltersChange(filters: SearchFilters) {
         val normalized = filters.normalized()
         _uiState.update { it.copy(filters = normalized) }
-        // Re-apply to what is already on screen so the UI responds instantly...
         viewModelScope.launch { applyFilterAndSort() }
-        // ...and schedule a fresh search for results the current page cannot contain.
         filterInput.value = normalized
     }
 
@@ -150,8 +137,9 @@ class SearchViewModel(
     }
 
     fun resetFilters() {
-        _uiState.update { it.copy(filters = SearchFilters(), sortOrder = SortOrder.Relevance) }
-        filterInput.value = SearchFilters()
+        val empty = SearchFilters()
+        _uiState.update { it.copy(filters = empty, sortOrder = SortOrder.Relevance) }
+        filterInput.value = empty
         viewModelScope.launch { applyFilterAndSort() }
     }
 
@@ -162,7 +150,7 @@ class SearchViewModel(
             it.copy(isLoading = true, status = "Шукаю ігри за запитом і вибраними фільтрами…")
         }
         searchJob = viewModelScope.launch {
-            val games = runCatching { fetch(query, filters) }.getOrElse { error ->
+            val games = runCatching { fetch(query, filters) }.getOrElse {
                 if (token != searchToken) return@launch
                 _uiState.update {
                     it.copy(
@@ -174,22 +162,23 @@ class SearchViewModel(
                 return@launch
             }
             if (token != searchToken) return@launch
-            rawResults = games
+            resultMutex.withLock { rawResults = games }
             taxonomyRepository.learnFrom(games)
             _uiState.update { it.copy(isLoading = false) }
             applyFilterAndSort()
-            games.forEach { resolveArtwork(it) }
+            games.forEach(::resolveArtwork)
         }
     }
 
     /**
-     * Runs the text search, plus supplementary searches that fold the active filters into the query
-     * text. Wikidata's entity search does not accept structured filters, so appending
-     * "Chrono Trigger SNES" is what actually surfaces platform-specific entries.
+     * Combines title search, query supplements and a structured-filter fallback.
+     *
+     * The structured pool is gated through [SearchResultRefiner.matchesQuery], preventing an exact
+     * platform or genre filter from flooding a title search with unrelated games.
      */
     private suspend fun fetch(query: String, filters: SearchFilters): List<Game> {
         if (query.isBlank()) {
-            return if (filters.isActive) {
+            return if (filters.hasRemoteCriteria) {
                 gameRepository.searchByFilters(filters, limit = RESULT_LIMIT)
             } else {
                 emptyList()
@@ -209,20 +198,21 @@ class SearchViewModel(
 
         for (supplement in supplements) {
             pools += runCatching {
-                gameRepository.search(supplement, limit = 12, useCache = true, lightweight = true)
+                gameRepository.search(supplement, limit = SUPPLEMENT_LIMIT, useCache = true, lightweight = true)
             }.getOrDefault(emptyList())
+        }
+
+        if (filters.hasRemoteCriteria) {
+            val structured = runCatching {
+                gameRepository.searchByFilters(filters, limit = STRUCTURED_LIMIT)
+            }.getOrDefault(emptyList())
+                .filter { SearchResultRefiner.matchesQuery(it, query) }
+            pools += structured
         }
 
         return gameRepository.rankAndDedupe(pools.flatten(), query).take(RESULT_LIMIT)
     }
 
-    /**
-     * Resolves one result's artwork and folds it back into the list.
-     *
-     * Covers land one at a time and each arrival changes the displayed list, so the refreshes are
-     * coalesced through [artworkRefreshes] instead of re-filtering and re-sorting per cover — with
-     * 28 results that was 28 passes over the list on the main thread.
-     */
     private fun resolveArtwork(game: Game) {
         viewModelScope.launch {
             val resolved = runCatching { gameRepository.resolveMedia(game) }.getOrNull() ?: return@launch
@@ -235,35 +225,9 @@ class SearchViewModel(
 
     private suspend fun applyFilterAndSort() {
         val state = _uiState.value
-        val filters = state.filters
         val snapshot = resultMutex.withLock { rawResults }
-
         val games = withContext(Dispatchers.Default) {
-            var filtered = snapshot
-
-            if (filters.platform.isNotEmpty()) {
-                filtered = filtered.filter { PlatformNames.listsMatch(it.platforms, filters.platform) }
-            }
-            if (filters.genre.isNotEmpty()) {
-                val target = normalizeLoose(filters.genre)
-                filtered = filtered.filter { game -> game.genres.any { normalizeLoose(it) == target } }
-            }
-            val from = filters.yearFrom.takeIf { it > 0 } ?: 0
-            val to = filters.yearTo.takeIf { it > 0 } ?: Int.MAX_VALUE
-            // Games with no known year are kept: excluding them would hide most retro entries.
-            filtered = filtered.filter { it.year == null || it.year in from..to }
-
-            when (state.sortOrder) {
-                SortOrder.Relevance -> filtered
-                SortOrder.NewestFirst -> filtered.sortedByDescending { it.year ?: 0 }
-                SortOrder.OldestFirst -> filtered.sortedBy { it.year ?: Int.MAX_VALUE }
-                // Collation keys are computed once per title; comparing with a Collator directly
-                // re-collates on every comparison, which is O(n log n) collations instead of O(n).
-                SortOrder.Title -> filtered
-                    .map { COLLATOR.getCollationKey(it.title) to it }
-                    .sortedBy { it.first }
-                    .map { it.second }
-            }
+            SearchResultRefiner.refine(snapshot, state.filters, state.sortOrder)
         }
 
         _uiState.update {
@@ -271,7 +235,7 @@ class SearchViewModel(
                 results = games,
                 status = when {
                     it.isLoading -> it.status
-                    games.isEmpty() && rawResults.isNotEmpty() ->
+                    games.isEmpty() && snapshot.isNotEmpty() ->
                         "Немає результатів для обраних фільтрів."
                     games.isEmpty() -> "Точних результатів не знайдено."
                     else -> "${games.size} результатів"
@@ -281,15 +245,13 @@ class SearchViewModel(
     }
 
     private companion object {
-        const val RESULT_LIMIT = 28
+        const val RESULT_LIMIT = 40
+        const val SUPPLEMENT_LIMIT = 14
+        const val STRUCTURED_LIMIT = 40
         const val MAX_SUPPLEMENTAL_QUERIES = 3
         const val QUERY_DEBOUNCE_MILLIS = 520L
         const val FILTER_DEBOUNCE_MILLIS = 420L
         const val STOP_TIMEOUT_MILLIS = 5_000L
-
-        /** Short enough that covers still appear promptly, long enough to batch a burst. */
         const val ARTWORK_REFRESH_MILLIS = 120L
-
-        val COLLATOR: Collator = Collator.getInstance(Locale.forLanguageTag("uk"))
     }
 }
