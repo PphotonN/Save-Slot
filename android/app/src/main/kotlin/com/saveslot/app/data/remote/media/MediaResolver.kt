@@ -6,14 +6,8 @@ import com.saveslot.app.domain.model.Game
 /**
  * Decides which artwork source wins for a given game and platform.
  *
- * Two policies live here:
- *
- *  - **Tier order.** Sources are ordered by how likely they are to return the *right* image for the
- *    exact release, not merely any image: the ROM archive and storefronts know a specific release,
- *    while wiki search knows a franchise. Cheap sources also come first so the common case resolves
- *    in one round trip.
- *  - **Platform fallback.** A game viewed on a platform with no artwork anywhere still deserves a
- *    cover, so lookup retries against the game's other releases and records which one it used.
+ * Quality tiers are strict: release-aware archives and storefronts always finish before generic
+ * encyclopedia imagery is considered. [ProviderChain] may adapt ordering only inside one tier.
  */
 class MediaResolver(
     private val chain: ProviderChain,
@@ -21,7 +15,6 @@ class MediaResolver(
     screenshotProviders: ScreenshotProviders,
 ) {
 
-    /** Box art sources, grouped into tiers that run in order. */
     class BoxArtProviders(
         val libretroGuess: BoxArtProvider,
         val libretroIndex: BoxArtProvider,
@@ -50,25 +43,25 @@ class MediaResolver(
     )
 
     private val boxArtTiers: List<List<BoxArtProvider>> = listOf(
-        // Fast and release-accurate: the ROM archive, the storefront, and the image already on hand.
+        // Direct guesses and storefront records identify one concrete release.
         listOf(
             boxArtProviders.libretroGuess,
             boxArtProviders.steam,
-            boxArtProviders.wikidataEntity,
         ),
-        // Slower but still release-specific.
+        // Slower release-aware lookups and specialist catalogues.
         listOf(
             boxArtProviders.libretroIndex,
             boxArtProviders.gog,
-            boxArtProviders.pcGamingWiki,
             boxArtProviders.vndb,
+            boxArtProviders.pcGamingWiki,
         ),
-        // Encyclopaedic lead images: usually the cover, sometimes the wrong edition.
+        // Entity and article lead images are useful but may represent another edition.
         listOf(
+            boxArtProviders.wikidataEntity,
             boxArtProviders.wikipediaUk,
             boxArtProviders.wikipediaEn,
         ),
-        // Broad search across free-media archives.
+        // Broad free-media searches are the final fallback.
         listOf(
             boxArtProviders.commonsCategory,
             boxArtProviders.commonsSearch,
@@ -92,7 +85,6 @@ class MediaResolver(
         for (candidate in platformCandidates(game, platform)) {
             val result = chain.firstBoxArt(boxArtTiers, game, candidate)
             if (result != null) {
-                // Note when the artwork actually belongs to a different release of the game.
                 val source = if (candidate != platform) "${result.source}@$candidate" else result.source
                 return result.copy(source = source)
             }
@@ -107,22 +99,36 @@ class MediaResolver(
     ): MediaResult<List<String>> {
         for (candidate in platformCandidates(game, platform)) {
             val result = chain.collectScreenshots(screenshotProviderOrder, game, candidate, maxItems)
-            if (result.value.isNotEmpty()) {
+            val unique = result.value.distinctBy(::stableMediaKey).take(maxItems)
+            if (unique.isNotEmpty()) {
                 val source = if (candidate != platform) "${result.source}@$candidate" else result.source
-                return result.copy(source = source)
+                return result.copy(value = unique, source = source)
             }
         }
         return MediaResult(emptyList(), null, platform)
     }
 
     /**
-     * Platforms to try, in order: the one being viewed, the release the description emphasises,
-     * then the rest. Deduplicated so a single-platform game costs one pass.
+     * The viewed release is tried first, followed by the inferred primary release and a bounded set
+     * of alternatives. Canonicalisation prevents aliases such as PC/Windows or PS1/PlayStation from
+     * causing duplicate provider passes.
      */
     private fun platformCandidates(game: Game, platform: String): List<String> {
         val primary = PlatformNames.inferPrimary(game.platforms, game.description)
         return (listOf(platform, primary) + game.platforms)
+            .map(PlatformNames::canonical)
             .filter { it.isNotEmpty() }
             .distinct()
+            .take(MAX_PLATFORM_FALLBACKS)
+    }
+
+    private fun stableMediaKey(url: String): String = url
+        .substringBefore('#')
+        .substringBefore('?')
+        .removeSuffix("/")
+        .lowercase()
+
+    private companion object {
+        const val MAX_PLATFORM_FALLBACKS = 4
     }
 }

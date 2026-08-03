@@ -6,9 +6,24 @@ data class SearchFilters(
     val genre: String = "",
     val yearFrom: Int = 0,
     val yearTo: Int = 0,
+    val includeUnknownYear: Boolean = true,
+    val artworkOnly: Boolean = false,
 ) {
-    val isActive: Boolean
+    /** Filters that can be sent to the remote catalogue rather than applied only to local results. */
+    val hasRemoteCriteria: Boolean
         get() = platform.isNotEmpty() || genre.isNotEmpty() || yearFrom > 0 || yearTo > 0
+
+    val isActive: Boolean
+        get() = hasRemoteCriteria || !includeUnknownYear || artworkOnly
+
+    val activeCount: Int
+        get() = listOf(
+            platform.isNotEmpty(),
+            genre.isNotEmpty(),
+            yearFrom > 0 || yearTo > 0,
+            !includeUnknownYear,
+            artworkOnly,
+        ).count { it }
 
     /** Swaps reversed year bounds so a typo cannot produce an empty range. */
     fun normalized(): SearchFilters {
@@ -25,6 +40,7 @@ data class SearchFilters(
 
 enum class SortOrder {
     Relevance,
+    CoverFirst,
     NewestFirst,
     OldestFirst,
     Title,
