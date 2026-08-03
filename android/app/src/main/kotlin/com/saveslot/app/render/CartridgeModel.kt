@@ -69,12 +69,20 @@ data class ModelMesh(
 )
 
 @Serializable
-data class ModelGroup(
+class ModelGroup(
     val material: String = "",
     val color: List<Float> = emptyList(),
     val metalness: Float = 0f,
     val roughness: Float = 0.5f,
-    val vertices: List<Float> = emptyList(),
+    /**
+     * Interleaved vertex data as a primitive array.
+     *
+     * The cartridge and slot together are ~35k vertices, so a `List<Float>` here would box a
+     * quarter of a million floats while parsing the asset — megabytes of short-lived garbage, and a
+     * GC pause landing exactly when the first screen is loading. A `FloatArray` costs one
+     * allocation and uploads to GL in a single bulk copy.
+     */
+    val vertices: FloatArray = FloatArray(0),
 )
 
 /**

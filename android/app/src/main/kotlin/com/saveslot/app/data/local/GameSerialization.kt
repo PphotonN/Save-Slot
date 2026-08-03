@@ -18,11 +18,11 @@ import kotlinx.serialization.json.Json
  * was missing, so every load re-normalises platform names and re-derives the display title. Doing
  * it here means the rest of the app can treat any [Game] it receives as already sane.
  */
-class GameSerializer(private val json: Json) {
+open class GameSerializer(private val json: Json) {
 
-    fun encode(game: Game): String = json.encodeToString(Game.serializer(), game)
+    open fun encode(game: Game): String = json.encodeToString(Game.serializer(), game)
 
-    fun decode(payload: String): Game? =
+    open fun decode(payload: String): Game? =
         runCatching { json.decodeFromString(Game.serializer(), payload) }.getOrNull()?.let(::repair)
 
     /**

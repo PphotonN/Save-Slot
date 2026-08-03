@@ -8,6 +8,9 @@ import coil3.disk.DiskCache
 import coil3.memory.MemoryCache
 import coil3.network.okhttp.OkHttpNetworkFetcherFactory
 import coil3.request.crossfade
+import coil3.util.DebugLogger
+import com.saveslot.app.core.log.ArtworkEventListener
+import com.saveslot.app.core.log.ImageLog
 import com.saveslot.app.di.AppContainer
 import okio.Path.Companion.toOkioPath
 
@@ -45,5 +48,11 @@ class SaveSlotApplication : Application(), SingletonImageLoader.Factory {
                     .build()
             }
             .crossfade(true)
+            // Artwork tracing: our own one-line-per-event trace, plus Coil's internal log for the
+            // fetch/decode detail behind a failure. See ImageLog to silence both.
+            .eventListener(ArtworkEventListener())
+            // Coil's own logger is verbose and synchronous; keep it to debug builds so it cannot
+            // add main-thread work to a release scroll.
+            .apply { if (ImageLog.enabled) logger(DebugLogger()) }
             .build()
 }

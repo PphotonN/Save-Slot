@@ -55,15 +55,32 @@ class ImageProbe(private val httpClient: HttpClient) {
         }
     }
 
+    /**
+     * Reads dimensions from as little of the image as possible.
+     *
+     * A candidate list can run to dozens of URLs per game and only the header is needed, so the
+     * first attempt asks for a small byte range. PNG carries its size in the first 33 bytes, WebP in
+     * the first 30, and JPEG's frame header sits within the first few KB, so this almost always
+     * succeeds — turning a multi-megabyte download per candidate into a few kilobytes. A server that
+     * ignores `Range` simply returns the whole body, which also works; only if the prefix is too
+     * short to decode does it fall back to a full fetch.
+     */
     private suspend fun fetchMeta(url: String, timeoutMillis: Long): ImageMeta {
-        val bytes = httpClient.getBytes(url, timeoutMillis) ?: return ImageMeta.MISSING
+        val prefix = httpClient.getBytes(url, timeoutMillis, maxBytes = HEADER_BYTES)
+        decodeBounds(prefix)?.let { return it }
+        val full = httpClient.getBytes(url, timeoutMillis) ?: return ImageMeta.MISSING
+        return decodeBounds(full) ?: ImageMeta.MISSING
+    }
+
+    private suspend fun decodeBounds(bytes: ByteArray?): ImageMeta? {
+        if (bytes == null || bytes.isEmpty()) return null
         return withContext(Dispatchers.Default) {
             val options = BitmapFactory.Options().apply { inJustDecodeBounds = true }
             BitmapFactory.decodeByteArray(bytes, 0, bytes.size, options)
             if (options.outWidth > 0 && options.outHeight > 0) {
                 ImageMeta(ok = true, width = options.outWidth, height = options.outHeight)
             } else {
-                ImageMeta.MISSING
+                null
             }
         }
     }
@@ -122,5 +139,8 @@ class ImageProbe(private val httpClient: HttpClient) {
 
     companion object {
         const val DEFAULT_TIMEOUT_MS = 2_600L
+
+        /** Comfortably covers PNG, WebP and JPEG headers without pulling image data. */
+        private const val HEADER_BYTES = 32 * 1024L
     }
 }

@@ -17,6 +17,8 @@ import okhttp3.OkHttpClient
 import okhttp3.Request
 import okhttp3.RequestBody.Companion.toRequestBody
 import okhttp3.Response
+import okio.Buffer
+import okio.BufferedSource
 
 /**
  * Thin JSON-over-HTTP layer shared by every remote data source.
@@ -92,10 +94,26 @@ class HttpClient(userAgent: String) {
         }
     }.getOrDefault(false)
 
-    suspend fun getBytes(url: String, timeoutMillis: Long): ByteArray? = runCatching {
+    /**
+     * Downloads a response body, optionally only its first [maxBytes].
+     *
+     * When [maxBytes] is set the request carries a `Range` header, and the read is capped even if the
+     * server ignores it — so a caller that only needs an image header never buffers a whole
+     * multi-megabyte file.
+     */
+    suspend fun getBytes(
+        url: String,
+        timeoutMillis: Long,
+        maxBytes: Long? = null,
+    ): ByteArray? = runCatching {
         withTimeout(timeoutMillis) {
-            okHttp.newCall(Request.Builder().url(url).get().build()).awaitResponse().use { response ->
-                if (!response.isSuccessful) null else response.body?.bytes()
+            val builder = Request.Builder().url(url).get()
+            if (maxBytes != null) builder.header("Range", "bytes=0-${maxBytes - 1}")
+            okHttp.newCall(builder.build()).awaitResponse().use { response ->
+                // 206 Partial Content when the range was honoured, 200 when it was ignored.
+                if (!response.isSuccessful) return@use null
+                val body = response.body ?: return@use null
+                if (maxBytes == null) body.bytes() else body.source().readAtMost(maxBytes)
             }
         }
     }.getOrNull()
@@ -133,3 +151,18 @@ internal suspend fun Call.awaitResponse(): Response = suspendCancellableCoroutin
 }
 
 class HttpStatusException(val code: Int) : IOException("HTTP $code")
+
+/**
+ * Reads at most [limit] bytes, stopping early rather than buffering the rest of the body.
+ *
+ * A server that ignores `Range` would otherwise stream the whole image into memory. Reads are
+ * looped because one `read` yields a single segment (~8 KB), which is not always a whole header.
+ */
+private fun BufferedSource.readAtMost(limit: Long): ByteArray {
+    val buffer = Buffer()
+    while (buffer.size < limit) {
+        val read = read(buffer, limit - buffer.size)
+        if (read == -1L) break
+    }
+    return buffer.readByteArray()
+}

@@ -8,9 +8,12 @@ import android.graphics.RectF
 import android.graphics.Shader
 import android.graphics.Typeface
 import androidx.compose.runtime.Composable
-import androidx.compose.runtime.remember
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.produceState
 import androidx.compose.ui.graphics.ImageBitmap
 import androidx.compose.ui.graphics.asImageBitmap
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.withContext
 
 /**
  * The placeholder label shown when no box art could be found.
@@ -24,9 +27,18 @@ object FallbackCover {
     private const val WIDTH = 480
     private const val HEIGHT = 640
 
+    @Volatile
     private var cached: Bitmap? = null
 
-    fun bitmap(): Bitmap = cached ?: draw().also { cached = it }
+    /**
+     * The placeholder label, drawn once and shared.
+     *
+     * Reached from several threads — the preview factory's render dispatcher, the slot view model,
+     * and composition — so the one-time draw is guarded rather than racing to produce duplicates.
+     */
+    fun bitmap(): Bitmap = cached ?: synchronized(this) {
+        cached ?: draw().also { cached = it }
+    }
 
     private fun draw(): Bitmap {
         val bitmap = Bitmap.createBitmap(WIDTH, HEIGHT, Bitmap.Config.ARGB_8888)
@@ -95,6 +107,17 @@ object FallbackCover {
     }
 }
 
+/**
+ * The placeholder label for use in composition.
+ *
+ * Produced off the main thread: the first call rasterises a 480x640 bitmap, and doing that inside
+ * composition would stall the frame that first shows a card. Until it is ready the caller simply
+ * has nothing to draw, which is the correct state anyway — artwork is still being resolved.
+ */
 @Composable
-internal fun rememberFallbackCover(): ImageBitmap =
-    remember { FallbackCover.bitmap().asImageBitmap() }
+internal fun rememberFallbackCover(): ImageBitmap? {
+    val bitmap by produceState<ImageBitmap?>(initialValue = null) {
+        value = withContext(Dispatchers.Default) { FallbackCover.bitmap().asImageBitmap() }
+    }
+    return bitmap
+}

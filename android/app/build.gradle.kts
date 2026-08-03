@@ -55,6 +55,9 @@ android {
 
     buildFeatures {
         compose = true
+        // Needed for BuildConfig.DEBUG, which gates the artwork trace so release builds pay
+        // nothing for it (see core/log/ImageLog).
+        buildConfig = true
     }
 
     sourceSets {

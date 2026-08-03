@@ -1,5 +1,6 @@
 package com.saveslot.app.ui.components
 
+import android.os.SystemClock
 import androidx.compose.animation.Crossfade
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
@@ -17,6 +18,8 @@ import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.DisposableEffect
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.produceState
 import androidx.compose.ui.Alignment
@@ -31,6 +34,7 @@ import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import coil3.compose.AsyncImage
+import com.saveslot.app.core.log.ImageLog
 import com.saveslot.app.domain.model.Game
 import com.saveslot.app.ui.theme.LocalSaveSlotColors
 
@@ -84,10 +88,40 @@ fun GameCard(
         initialValue = null,
         key1 = previewKey,
     ) {
+        val startedAt = SystemClock.elapsedRealtime()
+        ImageLog.d(ImageLog.TAG_CARD) {
+            "want   '${game.title}' artwork=${artwork.javaClass.simpleName} key=${ImageLog.key(previewKey)}"
+        }
         value = cartridgePreview(previewKey)
+        ImageLog.d(ImageLog.TAG_CARD) {
+            val outcome = if (value == null) "no cartridge" else "cartridge"
+            "got    '${game.title}' $outcome in ${SystemClock.elapsedRealtime() - startedAt}ms"
+        }
     }
 
     val fallback = rememberFallbackCover()
+
+    // What the card has on screen right now. Logged on every change, because "the artwork appeared
+    // and then went away" is this value moving from cartridge or flatCover back to fallback — and
+    // the reason is whichever stage logged just before it.
+    val shown = when {
+        preview != null -> "cartridge"
+        coverUrl != null -> "flatCover"
+        fallback != null -> "fallback"
+        else -> "blank"
+    }
+    LaunchedEffect(shown, previewKey) {
+        ImageLog.d(ImageLog.TAG_CARD) {
+            "shows  '${game.title}' $shown artwork=${artwork.javaClass.simpleName} " +
+                "key=${ImageLog.key(previewKey)}"
+        }
+    }
+
+    // A card leaving composition abandons its preview request and starts over on the way back, so
+    // this line marks where any repeated work below it comes from.
+    DisposableEffect(previewKey) {
+        onDispose { ImageLog.d(ImageLog.TAG_CARD) { "gone   '${game.title}' key=${ImageLog.key(previewKey)}" } }
+    }
 
     Column(
         modifier = modifier
@@ -122,7 +156,9 @@ fun GameCard(
                         contentScale = ContentScale.Crop,
                         modifier = Modifier.fillMaxSize(),
                     )
-                    else -> androidx.compose.foundation.Image(
+                    // Null only for the frame or two before the placeholder finishes rasterising
+                    // off-thread; the plastic backing shows through in the meantime.
+                    fallback != null -> androidx.compose.foundation.Image(
                         bitmap = fallback,
                         contentDescription = null,
                         contentScale = ContentScale.Fit,

@@ -4,11 +4,15 @@ import com.saveslot.app.data.local.TaxonomyDao
 import com.saveslot.app.data.local.TaxonomyTermEntity
 import com.saveslot.app.domain.model.Game
 import com.saveslot.app.domain.model.Taxonomy
+import kotlinx.coroutines.Dispatchers
 import java.text.Collator
 import java.util.Locale
 import kotlin.time.Clock
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.combine
+import kotlinx.coroutines.flow.conflate
+import kotlinx.coroutines.flow.flowOn
+import kotlinx.coroutines.withContext
 
 /**
  * The platform and genre vocabulary offered in the search filters.
@@ -31,16 +35,24 @@ class TaxonomyRepository(
             updatedAt = (platformRows + genreRows).maxOfOrNull { it.updatedAt } ?: 0L,
         )
     }
+        // Collation-sorting a few hundred terms is re-run every time a search teaches the app a new
+        // platform or genre, which is often; it must not happen on the collector's (main) thread.
+        .flowOn(Dispatchers.Default)
+        .conflate()
 
     /** Adds any new platforms and genres seen in [games] to the vocabulary. */
     suspend fun learnFrom(games: List<Game>) {
         if (games.isEmpty()) return
-        val now = clock.now().toEpochMilliseconds()
-        val terms = games.flatMap { game ->
-            game.platforms.map { TaxonomyTermEntity(TaxonomyTermEntity.KIND_PLATFORM, it, now) } +
-                game.genres.map { TaxonomyTermEntity(TaxonomyTermEntity.KIND_GENRE, it, now) }
-        }.distinctBy { it.kind to it.value }
-        if (terms.isNotEmpty()) taxonomyDao.upsert(terms)
+        // Called after every search and every discovery batch, from viewModelScope; building a few
+        // hundred rows belongs off the main thread.
+        withContext(Dispatchers.Default) {
+            val now = clock.now().toEpochMilliseconds()
+            val terms = games.flatMap { game ->
+                game.platforms.map { TaxonomyTermEntity(TaxonomyTermEntity.KIND_PLATFORM, it, now) } +
+                    game.genres.map { TaxonomyTermEntity(TaxonomyTermEntity.KIND_GENRE, it, now) }
+            }.distinctBy { it.kind to it.value }
+            if (terms.isNotEmpty()) taxonomyDao.upsert(terms)
+        }
     }
 
     private companion object {

@@ -7,6 +7,7 @@ import coil3.ImageLoader
 import coil3.request.ImageRequest
 import coil3.request.allowHardware
 import coil3.toBitmap
+import com.saveslot.app.core.log.ImageLog
 import com.saveslot.app.data.repository.SettingsRepository
 import com.saveslot.app.render.CartridgeModel
 import com.saveslot.app.render.CartridgeModelLoader
@@ -17,8 +18,10 @@ import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.combine
+import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
 
 /**
  * Owns the console face: which cartridge is loaded, and the haptics that go with it.
@@ -79,7 +82,18 @@ class SlotViewModel(
     /** Slides a cartridge for [gameId] into the slot, fetching its cover first. */
     fun insert(gameId: String, title: String, coverUrl: String?) {
         viewModelScope.launch {
-            val cover = coverUrl?.let { loadBitmap(it) } ?: FallbackCover.bitmap()
+            val loaded = coverUrl?.let { loadBitmap(it) }
+            // viewModelScope runs on the main thread, and rasterising the placeholder is a real
+            // canvas draw, so it is pushed off-thread like any other bitmap work.
+            val cover = loaded ?: withContext(Dispatchers.Default) { FallbackCover.bitmap() }
+            ImageLog.d(ImageLog.TAG_SLOT) {
+                val label = when {
+                    coverUrl == null -> "no url"
+                    loaded == null -> "fetch failed, using fallback"
+                    else -> ImageLog.key(coverUrl)
+                }
+                "insert '$title' label=$label ${cover.width}x${cover.height}"
+            }
             loadedGame.value = LoadedCartridge(gameId = gameId, title = title, cover = cover)
         }
     }
@@ -93,8 +107,17 @@ class SlotViewModel(
     fun updateCover(gameId: String, coverUrl: String?) {
         viewModelScope.launch {
             val current = loadedGame.value ?: return@launch
-            if (current.gameId != gameId) return@launch
-            val cover = coverUrl?.let { loadBitmap(it) } ?: return@launch
+            if (current.gameId != gameId) {
+                ImageLog.d(ImageLog.TAG_SLOT) { "ignore new label for $gameId; slot holds ${current.gameId}" }
+                return@launch
+            }
+            val cover = coverUrl?.let { loadBitmap(it) } ?: run {
+                ImageLog.w(ImageLog.TAG_SLOT) { "keeping old label; new one unusable ${ImageLog.key(coverUrl)}" }
+                return@launch
+            }
+            ImageLog.d(ImageLog.TAG_SLOT) {
+                "relabel '${current.title}' ${ImageLog.key(coverUrl)} ${cover.width}x${cover.height}"
+            }
             loadedGame.value = current.copy(cover = cover)
         }
     }
@@ -116,6 +139,8 @@ class SlotViewModel(
             .allowHardware(false)
             .build()
         imageLoader.execute(request).image?.toBitmap()
+    }.onFailure { error ->
+        ImageLog.w(ImageLog.TAG_SLOT, error) { "label fetch threw ${ImageLog.key(url)}" }
     }.getOrNull()
 
     private companion object {

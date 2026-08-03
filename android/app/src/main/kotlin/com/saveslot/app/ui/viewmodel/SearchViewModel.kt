@@ -12,8 +12,11 @@ import com.saveslot.app.domain.model.SortOrder
 import com.saveslot.app.domain.model.Taxonomy
 import java.text.Collator
 import java.util.Locale
+import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.FlowPreview
 import kotlinx.coroutines.Job
+import kotlinx.coroutines.channels.BufferOverflow
+import kotlinx.coroutines.flow.MutableSharedFlow
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
@@ -24,6 +27,9 @@ import kotlinx.coroutines.flow.filter
 import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.sync.Mutex
+import kotlinx.coroutines.sync.withLock
+import kotlinx.coroutines.withContext
 
 data class SearchUiState(
     val query: String = "",
@@ -52,11 +58,29 @@ class SearchViewModel(
     private val _uiState = MutableStateFlow(SearchUiState())
     val uiState: StateFlow<SearchUiState> = _uiState.asStateFlow()
 
-    /** All results as fetched; [uiState].results is this list filtered and sorted. */
+    /**
+     * All results as fetched; [uiState].results is this list filtered and sorted.
+     *
+     * Written from several artwork coroutines at once, so access goes through [resultMutex].
+     */
     private var rawResults: List<Game> = emptyList()
+    private val resultMutex = Mutex()
 
     private val queryInput = MutableStateFlow("")
     private val filterInput = MutableStateFlow(SearchFilters())
+
+    /**
+     * Coalesces re-filter requests from artwork arriving.
+     *
+     * `DROP_OLDEST` with a single slot means a burst of covers collapses into one refresh rather
+     * than queueing one pass over the results per cover.
+     */
+    private val artworkRefreshes = MutableSharedFlow<Unit>(
+        replay = 0,
+        extraBufferCapacity = 1,
+        onBufferOverflow = BufferOverflow.DROP_OLDEST,
+    )
+
     private var searchJob: Job? = null
     private var searchToken = 0
 
@@ -83,13 +107,17 @@ class SearchViewModel(
                     if (query.isNotBlank() || filters.isActive) runSearch(query, filters)
                 }
         }
+        viewModelScope.launch {
+            // One refresh per burst of resolved covers, rather than one per cover.
+            artworkRefreshes.debounce(ARTWORK_REFRESH_MILLIS).collect { applyFilterAndSort() }
+        }
     }
 
     fun onQueryChange(query: String) {
         _uiState.update { it.copy(query = query) }
         queryInput.value = query.trim()
         if (query.isBlank() && !_uiState.value.filters.isActive) {
-            rawResults = emptyList()
+            viewModelScope.launch { resultMutex.withLock { rawResults = emptyList() } }
             _uiState.update {
                 it.copy(results = emptyList(), status = "Введи назву гри або обери фільтри.")
             }
@@ -107,14 +135,14 @@ class SearchViewModel(
         val normalized = filters.normalized()
         _uiState.update { it.copy(filters = normalized) }
         // Re-apply to what is already on screen so the UI responds instantly...
-        applyFilterAndSort()
+        viewModelScope.launch { applyFilterAndSort() }
         // ...and schedule a fresh search for results the current page cannot contain.
         filterInput.value = normalized
     }
 
     fun onSortOrderChange(order: SortOrder) {
         _uiState.update { it.copy(sortOrder = order) }
-        applyFilterAndSort()
+        viewModelScope.launch { applyFilterAndSort() }
     }
 
     fun toggleFilters() {
@@ -124,7 +152,7 @@ class SearchViewModel(
     fun resetFilters() {
         _uiState.update { it.copy(filters = SearchFilters(), sortOrder = SortOrder.Relevance) }
         filterInput.value = SearchFilters()
-        applyFilterAndSort()
+        viewModelScope.launch { applyFilterAndSort() }
     }
 
     private suspend fun runSearch(query: String, filters: SearchFilters) {
@@ -188,36 +216,54 @@ class SearchViewModel(
         return gameRepository.rankAndDedupe(pools.flatten(), query).take(RESULT_LIMIT)
     }
 
+    /**
+     * Resolves one result's artwork and folds it back into the list.
+     *
+     * Covers land one at a time and each arrival changes the displayed list, so the refreshes are
+     * coalesced through [artworkRefreshes] instead of re-filtering and re-sorting per cover — with
+     * 28 results that was 28 passes over the list on the main thread.
+     */
     private fun resolveArtwork(game: Game) {
         viewModelScope.launch {
             val resolved = runCatching { gameRepository.resolveMedia(game) }.getOrNull() ?: return@launch
-            rawResults = rawResults.map { if (it.id == resolved.id) resolved else it }
-            applyFilterAndSort()
+            resultMutex.withLock {
+                rawResults = rawResults.map { if (it.id == resolved.id) resolved else it }
+            }
+            artworkRefreshes.tryEmit(Unit)
         }
     }
 
-    private fun applyFilterAndSort() {
+    private suspend fun applyFilterAndSort() {
         val state = _uiState.value
         val filters = state.filters
-        var games = rawResults
+        val snapshot = resultMutex.withLock { rawResults }
 
-        if (filters.platform.isNotEmpty()) {
-            games = games.filter { PlatformNames.listsMatch(it.platforms, filters.platform) }
-        }
-        if (filters.genre.isNotEmpty()) {
-            val target = normalizeLoose(filters.genre)
-            games = games.filter { game -> game.genres.any { normalizeLoose(it) == target } }
-        }
-        val from = filters.yearFrom.takeIf { it > 0 } ?: 0
-        val to = filters.yearTo.takeIf { it > 0 } ?: Int.MAX_VALUE
-        // Games with no known year are kept: excluding them would hide most retro entries.
-        games = games.filter { it.year == null || it.year in from..to }
+        val games = withContext(Dispatchers.Default) {
+            var filtered = snapshot
 
-        games = when (state.sortOrder) {
-            SortOrder.Relevance -> games
-            SortOrder.NewestFirst -> games.sortedByDescending { it.year ?: 0 }
-            SortOrder.OldestFirst -> games.sortedBy { it.year ?: Int.MAX_VALUE }
-            SortOrder.Title -> games.sortedWith(compareBy(COLLATOR) { it.title })
+            if (filters.platform.isNotEmpty()) {
+                filtered = filtered.filter { PlatformNames.listsMatch(it.platforms, filters.platform) }
+            }
+            if (filters.genre.isNotEmpty()) {
+                val target = normalizeLoose(filters.genre)
+                filtered = filtered.filter { game -> game.genres.any { normalizeLoose(it) == target } }
+            }
+            val from = filters.yearFrom.takeIf { it > 0 } ?: 0
+            val to = filters.yearTo.takeIf { it > 0 } ?: Int.MAX_VALUE
+            // Games with no known year are kept: excluding them would hide most retro entries.
+            filtered = filtered.filter { it.year == null || it.year in from..to }
+
+            when (state.sortOrder) {
+                SortOrder.Relevance -> filtered
+                SortOrder.NewestFirst -> filtered.sortedByDescending { it.year ?: 0 }
+                SortOrder.OldestFirst -> filtered.sortedBy { it.year ?: Int.MAX_VALUE }
+                // Collation keys are computed once per title; comparing with a Collator directly
+                // re-collates on every comparison, which is O(n log n) collations instead of O(n).
+                SortOrder.Title -> filtered
+                    .map { COLLATOR.getCollationKey(it.title) to it }
+                    .sortedBy { it.first }
+                    .map { it.second }
+            }
         }
 
         _uiState.update {
@@ -240,6 +286,9 @@ class SearchViewModel(
         const val QUERY_DEBOUNCE_MILLIS = 520L
         const val FILTER_DEBOUNCE_MILLIS = 420L
         const val STOP_TIMEOUT_MILLIS = 5_000L
+
+        /** Short enough that covers still appear promptly, long enough to batch a burst. */
+        const val ARTWORK_REFRESH_MILLIS = 120L
 
         val COLLATOR: Collator = Collator.getInstance(Locale.forLanguageTag("uk"))
     }

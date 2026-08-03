@@ -170,20 +170,28 @@ class GameRepository(
 
         val entities = wikidata.entities(ids)
         val hitsById = hits.associateBy { it.id }
-        val gameEntities = entities.values.filter {
-            WikidataDataSource.isLikelyGame(it, hitsById[it.entityId()])
+
+        // Classifying and mapping entities is regex-heavy over up to 50 documents. Repositories are
+        // called from viewModelScope, which is the main thread, so the CPU work is moved explicitly
+        // rather than inheriting the caller's dispatcher.
+        val gameEntities = withContext(Dispatchers.Default) {
+            entities.values.filter { WikidataDataSource.isLikelyGame(it, hitsById[it.entityId()]) }
         }
         if (gameEntities.isEmpty()) return emptyList()
 
         // Platforms, genres, studios and series are referenced by id; resolve them in one batch.
-        val dependencyIds = gameEntities.flatMap { entity ->
-            LABEL_PROPERTIES.flatMap { WikidataDataSource.claimEntityIds(entity, it) }
-        }.distinct()
+        val dependencyIds = withContext(Dispatchers.Default) {
+            gameEntities.flatMap { entity ->
+                LABEL_PROPERTIES.flatMap { WikidataDataSource.claimEntityIds(entity, it) }
+            }.distinct()
+        }
         val labels = wikidata.labels(dependencyIds)
 
-        val games = gameEntities.mapNotNull { entity ->
-            WikidataDataSource.toGame(entity, labels, hitsById[entity.entityId()])
-        }.take(limit)
+        val games = withContext(Dispatchers.Default) {
+            gameEntities.mapNotNull { entity ->
+                WikidataDataSource.toGame(entity, labels, hitsById[entity.entityId()])
+            }.take(limit)
+        }
 
         return enrichAll(games, lightweight)
     }
@@ -318,19 +326,25 @@ class GameRepository(
 
     // --- Cache ----------------------------------------------------------------------------------
 
-    suspend fun loadCached(gameId: String): Game? =
+    suspend fun loadCached(gameId: String): Game? = withContext(Dispatchers.Default) {
         gameCacheDao.byId(gameId)?.payload?.let(serializer::decode)
+    }
 
     /** Cached games, used to keep discovery populated when the network is unavailable. */
-    suspend fun cachedPool(limit: Int = 180): List<Game> =
+    suspend fun cachedPool(limit: Int = 180): List<Game> = withContext(Dispatchers.Default) {
         gameCacheDao.recentlyCached(limit).mapNotNull { serializer.decode(it.payload) }
+    }
 
     suspend fun cacheGames(games: List<Game>) {
         if (games.isEmpty()) return
-        val now = clock.now().toEpochMilliseconds()
-        val rows = games.map { CachedGameEntity(it.id, serializer.encode(it), now) }
-        gameCacheDao.upsert(rows)
-        gameCacheDao.trimTo(MAX_CACHED_GAMES)
+        // Called once per resolved cover while a rail is filling in, so serialising a batch of
+        // game documents must never land on the caller's thread.
+        withContext(Dispatchers.Default) {
+            val now = clock.now().toEpochMilliseconds()
+            val rows = games.map { CachedGameEntity(it.id, serializer.encode(it), now) }
+            gameCacheDao.upsert(rows)
+            gameCacheDao.trimTo(MAX_CACHED_GAMES)
+        }
     }
 
     suspend fun clearCache() {
@@ -338,17 +352,20 @@ class GameRepository(
         queryCacheDao.clear()
     }
 
-    private suspend fun cachedResults(normalizedQuery: String, limit: Int): List<Game>? {
-        val entry = queryCacheDao.byQuery(normalizedQuery) ?: return null
-        val age = clock.now().toEpochMilliseconds() - entry.createdAt
-        if (age > QUERY_CACHE_TTL_MILLIS) return null
-        val ids = entry.gameIds.split(ID_SEPARATOR).filter { it.isNotEmpty() }
-        if (ids.isEmpty()) return null
-        val byId = gameCacheDao.byIds(ids).mapNotNull { serializer.decode(it.payload) }.associateBy { it.id }
-        // Preserve the ranking the search produced rather than the database's row order.
-        val ordered = ids.mapNotNull { byId[it] }
-        return ordered.takeIf { it.isNotEmpty() }?.take(limit)
-    }
+    private suspend fun cachedResults(normalizedQuery: String, limit: Int): List<Game>? =
+        withContext(Dispatchers.Default) {
+            val entry = queryCacheDao.byQuery(normalizedQuery) ?: return@withContext null
+            val age = clock.now().toEpochMilliseconds() - entry.createdAt
+            if (age > QUERY_CACHE_TTL_MILLIS) return@withContext null
+            val ids = entry.gameIds.split(ID_SEPARATOR).filter { it.isNotEmpty() }
+            if (ids.isEmpty()) return@withContext null
+            val byId = gameCacheDao.byIds(ids)
+                .mapNotNull { serializer.decode(it.payload) }
+                .associateBy { it.id }
+            // Preserve the ranking the search produced rather than the database's row order.
+            val ordered = ids.mapNotNull { byId[it] }
+            ordered.takeIf { it.isNotEmpty() }?.take(limit)
+        }
 
     private suspend fun rememberQuery(normalizedQuery: String, games: List<Game>) {
         queryCacheDao.upsert(

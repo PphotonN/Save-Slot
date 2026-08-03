@@ -2,6 +2,7 @@ package com.saveslot.app.ui.components
 
 import android.content.Context
 import android.graphics.Bitmap
+import android.os.SystemClock
 import androidx.compose.runtime.ProvidableCompositionLocal
 import androidx.compose.runtime.staticCompositionLocalOf
 import androidx.compose.ui.graphics.ImageBitmap
@@ -10,6 +11,7 @@ import coil3.ImageLoader
 import coil3.request.ImageRequest
 import coil3.request.allowHardware
 import coil3.toBitmap
+import com.saveslot.app.core.log.ImageLog
 import com.saveslot.app.render.CartridgePreviewFactory
 
 /**
@@ -26,13 +28,40 @@ class CartridgePreviewProvider(
 ) {
 
     suspend fun preview(coverUrl: String): ImageBitmap? {
-        factory.cached(coverUrl)?.let { return it.asImageBitmap() }
+        factory.cached(coverUrl)?.let {
+            ImageLog.d(TAG) { "cache hit  ${ImageLog.key(coverUrl)} ${factory.cacheStats()}" }
+            return it.asImageBitmap()
+        }
+        ImageLog.d(TAG) {
+            "cache miss ${ImageLog.key(coverUrl)} ${factory.cacheStats()} " +
+                ImageLog.coilCaches(imageLoader)
+        }
+
+        val startedAt = SystemClock.elapsedRealtime()
         val cover = if (coverUrl == FALLBACK_PREVIEW_KEY) {
             FallbackCover.bitmap()
         } else {
-            loadCover(coverUrl) ?: FallbackCover.bitmap()
+            val loaded = loadCover(coverUrl)
+            if (loaded == null) {
+                // Note: the cartridge is still rendered and cached under the cover's key, so this
+                // URL keeps its placeholder label until the cache is dropped.
+                ImageLog.w(TAG) { "cover missing, labelling with fallback ${ImageLog.key(coverUrl)}" }
+                FallbackCover.bitmap()
+            } else {
+                ImageLog.d(TAG) {
+                    "cover ok   ${ImageLog.key(coverUrl)} ${loaded.width}x${loaded.height} " +
+                        "in ${SystemClock.elapsedRealtime() - startedAt}ms"
+                }
+                loaded
+            }
         }
-        return factory.preview(coverUrl, cover)?.asImageBitmap()
+
+        val rendered = factory.preview(coverUrl, cover)
+        ImageLog.d(TAG) {
+            val outcome = if (rendered == null) "render FAILED" else "render ok ${rendered.width}x${rendered.height}"
+            "$outcome ${ImageLog.key(coverUrl)} total=${SystemClock.elapsedRealtime() - startedAt}ms"
+        }
+        return rendered?.asImageBitmap()
     }
 
     private suspend fun loadCover(url: String): Bitmap? = runCatching {
@@ -42,7 +71,13 @@ class CartridgePreviewProvider(
             .allowHardware(false)
             .build()
         imageLoader.execute(request).image?.toBitmap()
+    }.onFailure { error ->
+        ImageLog.w(TAG, error) { "cover fetch threw ${ImageLog.key(url)}" }
     }.getOrNull()
+
+    private companion object {
+        const val TAG = ImageLog.TAG_PREVIEW
+    }
 }
 
 val LocalCartridgePreviews: ProvidableCompositionLocal<CartridgePreviewProvider?> =

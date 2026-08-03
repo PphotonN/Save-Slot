@@ -8,9 +8,11 @@ import android.opengl.EGLDisplay
 import android.opengl.EGLSurface
 import android.opengl.GLES20
 import androidx.collection.LruCache
+import com.saveslot.app.core.log.ImageLog
 import java.nio.ByteBuffer
 import java.nio.ByteOrder
-import kotlinx.coroutines.Dispatchers
+import java.util.concurrent.Executors
+import kotlinx.coroutines.asCoroutineDispatcher
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
 import kotlinx.coroutines.withContext
@@ -24,13 +26,37 @@ import kotlinx.coroutines.withContext
  * resulting bitmap is cached and drawn as an ordinary image. Cards then cost no more than a photo,
  * while still showing the actual 3D cartridge.
  *
- * All GL work is serialised through [mutex] because a single EGL context cannot be current on two
- * threads at once.
+ * All GL work is serialised through [mutex] and confined to [glDispatcher], because a single EGL
+ * context cannot be current on two threads at once.
  */
 class CartridgePreviewFactory(private val modelLoader: CartridgeModelLoader) {
 
     private val mutex = Mutex()
-    private val cache = LruCache<String, Bitmap>(CACHE_ENTRIES)
+
+    /**
+     * The one thread every GL call runs on.
+     *
+     * `eglMakeCurrent` binds the context to the calling thread and is called once, when the context
+     * is created. `Dispatchers.Default` hands out whichever worker is free per dispatch, so renders
+     * that landed on a different worker than the one that initialised drew into *no* current context:
+     * the draw calls were dropped, `glReadPixels` returned zeroes, and the card showed a fully
+     * transparent cartridge while still reporting a successful render. Confining the context and
+     * every draw to a single thread is what makes the context valid for all of them.
+     */
+    private val glDispatcher = Executors.newSingleThreadExecutor { runnable ->
+        Thread(runnable, "cartridge-gl")
+    }.asCoroutineDispatcher()
+
+    private val cache = object : LruCache<String, Bitmap>(CACHE_ENTRIES) {
+        override fun entryRemoved(evicted: Boolean, key: String, oldValue: Bitmap, newValue: Bitmap?) {
+            // An eviction here means the next card asking for this cover pays for a full re-render,
+            // which is the usual reason a cartridge blinks back to flat artwork while scrolling.
+            ImageLog.d(TAG) {
+                val reason = if (evicted) "evict" else "replace"
+                "$reason     ${ImageLog.key(key)} ${cacheStats()}"
+            }
+        }
+    }
 
     private var display: EGLDisplay? = null
     private var context: EGLContext? = null
@@ -49,16 +75,26 @@ class CartridgePreviewFactory(private val modelLoader: CartridgeModelLoader) {
      */
     suspend fun preview(key: String, cover: Bitmap?): Bitmap? {
         cache[key]?.let { return it }
-        return withContext(Dispatchers.Default) {
+        return withContext(glDispatcher) {
             mutex.withLock {
-                cache[key]?.let { return@withLock it }
+                // A second caller may have rendered this cover while this one waited for the lock.
+                cache[key]?.let {
+                    ImageLog.d(TAG) { "lock hit  ${ImageLog.key(key)} ${cacheStats()}" }
+                    return@withLock it
+                }
                 if (initFailed) return@withLock null
                 if (!ensureContext()) {
+                    ImageLog.w(TAG) { "GL unavailable; cartridges disabled for this session" }
                     initFailed = true
                     return@withLock null
                 }
-                val rendered = runCatching { render(cover) }.getOrNull()
-                if (rendered != null) cache.put(key, rendered)
+                val rendered = runCatching { render(cover) }
+                    .onFailure { error -> ImageLog.w(TAG, error) { "render threw ${ImageLog.key(key)}" } }
+                    .getOrNull()
+                if (rendered != null) {
+                    cache.put(key, rendered)
+                    ImageLog.d(TAG) { "put       ${ImageLog.key(key)} ${cacheStats()}" }
+                }
                 rendered
             }
         }
@@ -66,13 +102,18 @@ class CartridgePreviewFactory(private val modelLoader: CartridgeModelLoader) {
 
     fun cached(key: String): Bitmap? = cache[key]
 
+    /** Occupancy and hit rate of the rendered-cartridge cache, for the artwork trace. */
+    fun cacheStats(): String =
+        "lru=${cache.size()}/${cache.maxSize()} hits=${cache.hitCount()} " +
+            "misses=${cache.missCount()} evicted=${cache.evictionCount()}"
+
     private suspend fun ensureContext(): Boolean {
         if (context != null) return true
 
         val eglDisplay = EGL14.eglGetDisplay(EGL14.EGL_DEFAULT_DISPLAY)
-        if (eglDisplay == EGL14.EGL_NO_DISPLAY) return false
+        if (eglDisplay == EGL14.EGL_NO_DISPLAY) return failInit("eglGetDisplay")
         val version = IntArray(2)
-        if (!EGL14.eglInitialize(eglDisplay, version, 0, version, 1)) return false
+        if (!EGL14.eglInitialize(eglDisplay, version, 0, version, 1)) return failInit("eglInitialize")
 
         val configAttributes = intArrayOf(
             EGL14.EGL_RED_SIZE, 8,
@@ -90,9 +131,9 @@ class CartridgePreviewFactory(private val modelLoader: CartridgeModelLoader) {
         if (!EGL14.eglChooseConfig(eglDisplay, configAttributes, 0, configs, 0, 1, configCount, 0) ||
             configCount[0] == 0
         ) {
-            return false
+            return failInit("eglChooseConfig")
         }
-        val config = configs[0] ?: return false
+        val config = configs[0] ?: return failInit("eglChooseConfig returned no config")
 
         val eglContext = EGL14.eglCreateContext(
             eglDisplay,
@@ -101,7 +142,7 @@ class CartridgePreviewFactory(private val modelLoader: CartridgeModelLoader) {
             intArrayOf(EGL14.EGL_CONTEXT_CLIENT_VERSION, 2, EGL14.EGL_NONE),
             0,
         )
-        if (eglContext == EGL14.EGL_NO_CONTEXT) return false
+        if (eglContext == EGL14.EGL_NO_CONTEXT) return failInit("eglCreateContext")
 
         val eglSurface = EGL14.eglCreatePbufferSurface(
             eglDisplay,
@@ -111,12 +152,12 @@ class CartridgePreviewFactory(private val modelLoader: CartridgeModelLoader) {
         )
         if (eglSurface == EGL14.EGL_NO_SURFACE) {
             EGL14.eglDestroyContext(eglDisplay, eglContext)
-            return false
+            return failInit("eglCreatePbufferSurface")
         }
         if (!EGL14.eglMakeCurrent(eglDisplay, eglSurface, eglSurface, eglContext)) {
             EGL14.eglDestroySurface(eglDisplay, eglSurface)
             EGL14.eglDestroyContext(eglDisplay, eglContext)
-            return false
+            return failInit("eglMakeCurrent")
         }
 
         display = eglDisplay
@@ -132,7 +173,17 @@ class CartridgePreviewFactory(private val modelLoader: CartridgeModelLoader) {
         GLES20.glDepthFunc(GLES20.GL_LEQUAL)
         GLES20.glDisable(GLES20.GL_CULL_FACE)
         GLES20.glClearColor(0f, 0f, 0f, 0f)
-        return groups.isNotEmpty()
+        if (groups.isEmpty()) return failInit("model carried no '${CartridgeModel.ROLE_CARTRIDGE}' geometry")
+        ImageLog.d(TAG) {
+            "GL ready  ${groups.size} groups, ${WIDTH}x$HEIGHT pbuffer, " +
+                "context bound to ${Thread.currentThread().name}"
+        }
+        return true
+    }
+
+    private fun failInit(step: String): Boolean {
+        ImageLog.w(TAG) { "GL init failed at $step (egl error 0x${EGL14.eglGetError().toString(16)})" }
+        return false
     }
 
     private fun render(cover: Bitmap?): Bitmap? {
@@ -165,6 +216,15 @@ class CartridgePreviewFactory(private val modelLoader: CartridgeModelLoader) {
             val texture = textureId.takeIf { it != 0 }
             for (group in groups) activeProgram.draw(group, modelMatrix, texture)
 
+            // A dropped draw still read back a correctly sized, entirely transparent bitmap, so the
+            // trace reported success for a blank cartridge. Ask GL whether it accepted the work.
+            val error = GLES20.glGetError()
+            if (error != GLES20.GL_NO_ERROR) {
+                ImageLog.w(TAG) {
+                    "GL error 0x${error.toString(16)} while drawing on " +
+                        Thread.currentThread().name
+                }
+            }
             return readPixels()
         } finally {
             releaseTexture(textureId)
@@ -189,30 +249,39 @@ class CartridgePreviewFactory(private val modelLoader: CartridgeModelLoader) {
     }
 
     /** Tears down the hidden context; called when the app no longer needs previews. */
-    suspend fun release() = mutex.withLock {
-        releaseGroups(groups)
-        groups = emptyList()
-        program?.release()
-        program = null
-        val eglDisplay = display
-        if (eglDisplay != null) {
-            EGL14.eglMakeCurrent(
-                eglDisplay,
-                EGL14.EGL_NO_SURFACE,
-                EGL14.EGL_NO_SURFACE,
-                EGL14.EGL_NO_CONTEXT,
-            )
-            surface?.let { EGL14.eglDestroySurface(eglDisplay, it) }
-            context?.let { EGL14.eglDestroyContext(eglDisplay, it) }
-            EGL14.eglTerminate(eglDisplay)
+    suspend fun release() {
+        // Teardown is GL work too, so it belongs on the thread the context is bound to.
+        withContext(glDispatcher) {
+            mutex.withLock {
+                releaseGroups(groups)
+                groups = emptyList()
+                program?.release()
+                program = null
+                val eglDisplay = display
+                if (eglDisplay != null) {
+                    EGL14.eglMakeCurrent(
+                        eglDisplay,
+                        EGL14.EGL_NO_SURFACE,
+                        EGL14.EGL_NO_SURFACE,
+                        EGL14.EGL_NO_CONTEXT,
+                    )
+                    surface?.let { EGL14.eglDestroySurface(eglDisplay, it) }
+                    context?.let { EGL14.eglDestroyContext(eglDisplay, it) }
+                    EGL14.eglTerminate(eglDisplay)
+                }
+                display = null
+                surface = null
+                context = null
+                cache.evictAll()
+                ImageLog.d(TAG) { "GL released" }
+            }
         }
-        display = null
-        surface = null
-        context = null
-        cache.evictAll()
+        glDispatcher.close()
     }
 
     private companion object {
+        const val TAG = ImageLog.TAG_PREVIEW
+
         /** Matches the card aspect ratio (roughly 0.77) at a size that stays sharp on a phone. */
         const val WIDTH = 300
         const val HEIGHT = 392

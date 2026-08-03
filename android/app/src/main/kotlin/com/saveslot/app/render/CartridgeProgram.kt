@@ -5,7 +5,6 @@ import android.opengl.GLES20
 import android.opengl.GLUtils
 import java.nio.ByteBuffer
 import java.nio.ByteOrder
-import java.nio.FloatBuffer
 
 /**
  * The single GLES2 program the app draws with, plus the buffers for one model.
@@ -200,7 +199,14 @@ internal fun uploadModel(model: CartridgeModel, role: String? = null): List<GpuG
         if (role != null && mesh.role != role) continue
         for (group in mesh.groups) {
             if (group.vertices.isEmpty()) continue
-            val buffer = allocateFloatBuffer(group.vertices)
+            val buffer = ByteBuffer.allocateDirect(group.vertices.size * 4)
+                .order(ByteOrder.nativeOrder())
+                .asFloatBuffer()
+                .apply {
+                    // One bulk copy rather than a put() per float.
+                    put(group.vertices)
+                    position(0)
+                }
             val handles = IntArray(1)
             GLES20.glGenBuffers(1, handles, 0)
             GLES20.glBindBuffer(GLES20.GL_ARRAY_BUFFER, handles[0])
@@ -229,15 +235,6 @@ internal fun releaseGroups(groups: List<GpuGroup>) {
     val handles = groups.map { it.bufferId }.toIntArray()
     GLES20.glDeleteBuffers(handles.size, handles, 0)
 }
-
-private fun allocateFloatBuffer(values: List<Float>): FloatBuffer =
-    ByteBuffer.allocateDirect(values.size * 4)
-        .order(ByteOrder.nativeOrder())
-        .asFloatBuffer()
-        .apply {
-            for (value in values) put(value)
-            position(0)
-        }
 
 /** Uploads [bitmap] as the box-art texture, returning the new texture handle. */
 internal fun uploadTexture(bitmap: Bitmap): Int {

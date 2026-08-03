@@ -15,9 +15,14 @@ import com.saveslot.app.domain.model.NoteType
 import com.saveslot.app.domain.model.NoteWithGame
 import com.saveslot.app.domain.model.PlayStatus
 import kotlin.time.Clock
+import kotlinx.coroutines.CoroutineDispatcher
+import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.combine
+import kotlinx.coroutines.flow.conflate
+import kotlinx.coroutines.flow.flowOn
 import kotlinx.coroutines.flow.map
+import kotlinx.coroutines.withContext
 
 /**
  * The user's own data: collection entries, notes and recently viewed games.
@@ -30,6 +35,14 @@ class LibraryRepository(
     private val recentGamesDao: RecentGamesDao,
     private val serializer: GameSerializer,
     private val clock: Clock = Clock.System,
+    /**
+     * Where payload decoding and list assembly run.
+     *
+     * Flow operators execute in the *collector's* context, and these flows are collected by
+     * `stateIn(viewModelScope)` — the main thread. Without moving the work off it, every note edit
+     * would re-parse every collection game's JSON on the UI thread and drop frames.
+     */
+    private val workDispatcher: CoroutineDispatcher = Dispatchers.Default,
 ) {
 
     /** Collection entries with their notes attached, newest-touched first. */
@@ -47,16 +60,19 @@ class LibraryRepository(
                 )
             }
         }
+            .flowOn(workDispatcher)
+            // Collection and notes are observed by two screens at once; share one decode pass.
+            .conflate()
 
     /** Every note in the app, joined to its game, for the notes journal. */
     val notes: Flow<List<NoteWithGame>> = entries.map { list ->
         list.flatMap { entry -> entry.notes.map { NoteWithGame(note = it, game = entry.game) } }
             .sortedByDescending { it.note.updatedAt }
-    }
+    }.flowOn(workDispatcher)
 
-    val recent: Flow<List<Game>> = recentGamesDao.observe(RECENT_LIMIT).map { rows ->
-        rows.mapNotNull { serializer.decode(it.payload) }
-    }
+    val recent: Flow<List<Game>> = recentGamesDao.observe(RECENT_LIMIT)
+        .map { rows -> rows.mapNotNull { serializer.decode(it.payload) } }
+        .flowOn(workDispatcher)
 
     fun entry(gameId: String): Flow<CollectionEntry?> =
         combine(
@@ -65,7 +81,7 @@ class LibraryRepository(
         ) { entity, noteEntities ->
             val game = entity?.payload?.let(serializer::decode) ?: return@combine null
             entity.toDomain(game = game, notes = noteEntities.map { it.toDomain() })
-        }
+        }.flowOn(workDispatcher)
 
     fun filtered(filter: CollectionFilter): Flow<List<CollectionEntry>> = entries.map { list ->
         when (filter) {
@@ -82,8 +98,8 @@ class LibraryRepository(
 
     suspend fun isInCollection(gameId: String): Boolean = collectionDao.entry(gameId) != null
 
-    suspend fun addToCollection(game: Game) {
-        if (collectionDao.entry(game.id) != null) return
+    suspend fun addToCollection(game: Game) = withContext(workDispatcher) {
+        if (collectionDao.entry(game.id) != null) return@withContext
         val now = clock.now().toEpochMilliseconds()
         collectionDao.upsert(
             CollectionEntry(
@@ -126,24 +142,26 @@ class LibraryRepository(
         rating: Double?,
         owned: Boolean,
     ) {
-        val existing = collectionDao.entry(game.id)
-        val now = clock.now().toEpochMilliseconds()
-        val base = existing ?: run {
-            addToCollection(game)
-            collectionDao.entry(game.id)
-        } ?: return
-        collectionDao.upsert(
-            base.copy(
-                payload = serializer.encode(game),
-                status = status.storageKey,
-                format = format.storageKey,
-                playedOn = playedOn.trim(),
-                // Ratings are half-point steps in 0..10; anything else is a UI or import bug.
-                rating = rating?.let { (it * 2).toInt().coerceIn(0, 20) / 2.0 },
-                owned = owned,
-                updatedAt = now,
-            ),
-        )
+        withContext(workDispatcher) {
+            val existing = collectionDao.entry(game.id)
+            val now = clock.now().toEpochMilliseconds()
+            val base = existing ?: run {
+                addToCollection(game)
+                collectionDao.entry(game.id)
+            } ?: return@withContext
+            collectionDao.upsert(
+                base.copy(
+                    payload = serializer.encode(game),
+                    status = status.storageKey,
+                    format = format.storageKey,
+                    playedOn = playedOn.trim(),
+                    // Ratings are half-point steps in 0..10; anything else is a UI or import bug.
+                    rating = rating?.let { (it * 2).toInt().coerceIn(0, 20) / 2.0 },
+                    owned = owned,
+                    updatedAt = now,
+                ),
+            )
+        }
     }
 
     suspend fun addNote(game: Game, type: NoteType, title: String, body: String) {
@@ -169,7 +187,7 @@ class LibraryRepository(
     suspend fun deleteNote(noteId: String) = collectionDao.deleteNote(noteId)
 
     /** Records a game as recently viewed, keeping the list bounded. */
-    suspend fun rememberRecent(game: Game) {
+    suspend fun rememberRecent(game: Game) = withContext(workDispatcher) {
         recentGamesDao.remember(
             entry = RecentGameEntity(
                 gameId = game.id,

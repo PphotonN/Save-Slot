@@ -7,11 +7,15 @@ import com.saveslot.app.data.repository.LibraryRepository
 import com.saveslot.app.data.repository.TaxonomyRepository
 import com.saveslot.app.domain.discover.DiscoverSession
 import com.saveslot.app.domain.model.Game
+import kotlinx.coroutines.FlowPreview
 import kotlinx.coroutines.Job
+import kotlinx.coroutines.channels.BufferOverflow
+import kotlinx.coroutines.flow.MutableSharedFlow
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
+import kotlinx.coroutines.flow.debounce
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.flow.update
@@ -31,6 +35,7 @@ data class DiscoverUiState(
  * showing anything would make the rail feel broken on a slow connection, since box art can take
  * several provider attempts.
  */
+@OptIn(FlowPreview::class)
 class DiscoverViewModel(
     private val gameRepository: GameRepository,
     private val libraryRepository: LibraryRepository,
@@ -49,7 +54,19 @@ class DiscoverViewModel(
     private var session = newSession()
     private var loadJob: Job? = null
 
+    /** Covers resolved but not yet published to the rail. */
+    private val pendingArtwork = mutableMapOf<String, Game>()
+
+    private val artworkRefreshes = MutableSharedFlow<Unit>(
+        replay = 0,
+        extraBufferCapacity = 1,
+        onBufferOverflow = BufferOverflow.DROP_OLDEST,
+    )
+
     init {
+        viewModelScope.launch {
+            artworkRefreshes.debounce(ARTWORK_REFRESH_MILLIS).collect { applyPendingArtwork() }
+        }
         refresh(initial = true)
     }
 
@@ -102,13 +119,25 @@ class DiscoverViewModel(
      *
      * Each game gets its own coroutine so a single slow provider chain does not stall the others;
      * concurrency is bounded inside the repository.
+     *
+     * Results are staged in [pendingArtwork] and applied in batches: a page of eight covers finishing
+     * at once would otherwise publish eight new list instances, each rebuilding the rail's state.
      */
     private fun resolveArtwork(game: Game) {
         viewModelScope.launch {
             val resolved = runCatching { gameRepository.resolveMedia(game) }.getOrNull() ?: return@launch
-            _uiState.update { current ->
-                current.copy(games = current.games.map { if (it.id == resolved.id) resolved else it })
-            }
+            synchronized(pendingArtwork) { pendingArtwork[resolved.id] = resolved }
+            artworkRefreshes.tryEmit(Unit)
+        }
+    }
+
+    private fun applyPendingArtwork() {
+        val resolved = synchronized(pendingArtwork) {
+            if (pendingArtwork.isEmpty()) return
+            pendingArtwork.toMap().also { pendingArtwork.clear() }
+        }
+        _uiState.update { current ->
+            current.copy(games = current.games.map { resolved[it.id] ?: it })
         }
     }
 
@@ -121,5 +150,8 @@ class DiscoverViewModel(
         const val INITIAL_BATCH = 8
         const val NEXT_BATCH = 6
         const val STOP_TIMEOUT_MILLIS = 5_000L
+
+        /** Short enough that covers still appear promptly, long enough to batch a burst. */
+        const val ARTWORK_REFRESH_MILLIS = 120L
     }
 }
