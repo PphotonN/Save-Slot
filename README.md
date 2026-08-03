@@ -2,6 +2,8 @@
 
 Save Slot is an Android game research, collection and notes app built around a tactile 3D cartridge-and-slot interface. The current prototype uses a local WebView wrapper and public data sources that do not require personal API keys.
 
+> **Native rewrite:** `android/` holds a ground-up Kotlin + Jetpack Compose implementation of the same app, with the data layer, 3D renderer and haptics rewritten natively. See [`android/README.md`](android/README.md).
+
 ## Current capabilities
 
 - Ukrainian portrait interface for Android.
