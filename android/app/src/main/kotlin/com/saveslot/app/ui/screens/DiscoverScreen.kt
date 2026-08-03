@@ -46,7 +46,6 @@ import com.saveslot.app.ui.viewmodel.DiscoverViewModel
 fun DiscoverScreen(
     viewModel: DiscoverViewModel,
     onGameClick: (Game) -> Unit,
-    header: @Composable () -> Unit,
     modifier: Modifier = Modifier,
     contentPadding: PaddingValues = PaddingValues(),
 ) {
@@ -72,7 +71,6 @@ fun DiscoverScreen(
         contentPadding = contentPadding,
         verticalArrangement = Arrangement.spacedBy(12.dp),
     ) {
-        item(key = "header") { header() }
 
         item(key = "discover-heading") {
             SectionHeading(

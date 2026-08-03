@@ -17,12 +17,21 @@ internal data class CartridgePose(
     val scale: Float = 1f,
 )
 
-/** What the slot is currently doing, driven from the UI layer. */
-sealed interface SlotCommand {
-    data class Insert(val cover: Bitmap?, val reducedMotion: Boolean) : SlotCommand
-    data class Eject(val reducedMotion: Boolean) : SlotCommand
-    data class SetCover(val cover: Bitmap?) : SlotCommand
-}
+/**
+ * What the slot should be showing.
+ *
+ * Declarative rather than a queue of commands: only the newest request matters. Queueing meant
+ * opening game A and then game B played A's insert to completion before starting B's, showing the
+ * wrong cover for the best part of a second.
+ *
+ * @param cartridgeId identifies the seated cartridge; null means the slot should be empty. A change
+ *   here animates, a change to [cover] alone only re-labels.
+ */
+internal class SlotTarget(
+    val cartridgeId: String?,
+    val cover: Bitmap?,
+    val reducedMotion: Boolean,
+)
 
 /**
  * Renders the slot with the cartridge that is currently loaded, and animates it in and out.
@@ -51,7 +60,29 @@ class SlotSceneRenderer(
 
     private var pose = CartridgePose()
     private var animation: PoseAnimation? = null
-    private var pendingCommands = ArrayDeque<SlotCommand>()
+
+    /** Latest requested state, consumed on the next frame. Written from the UI thread. */
+    @Volatile
+    private var requestedTarget: SlotTarget? = null
+
+    /** What the slot is actually showing, so a repeated request is not re-animated. */
+    private var currentCartridgeId: String? = null
+    private var appliedCover: Bitmap? = null
+
+    /**
+     * Cartridge to insert once the cartridge currently in the slot has finished ejecting.
+     *
+     * Swapping games is physically two movements — the seated cartridge comes out, the new one goes
+     * in — so a change of game runs an eject and then an insert rather than cutting straight to the
+     * new cartridge. Non-null means an eject is playing on the old cartridge's behalf.
+     */
+    private var pendingInsert: SlotTarget? = null
+
+    /** Motion preference from the newest target, needed at draw time for the idle float. */
+    private var reducedMotion = false
+
+    /** When the current idle float began, so it always starts from zero displacement. */
+    private var idleStartNanos = 0L
 
     /** Whether a cartridge is loaded at all; when false the cartridge meshes are skipped. */
     @Volatile
@@ -76,8 +107,14 @@ class SlotSceneRenderer(
         onRequestRender()
     }
 
-    fun enqueue(command: SlotCommand) {
-        synchronized(pendingCommands) { pendingCommands.addLast(command) }
+    /**
+     * Asks the slot to show [target].
+     *
+     * Replaces any earlier request outright, including one already animating, so navigating quickly
+     * between games shows a single insert for the game the user actually landed on.
+     */
+    internal fun setTarget(target: SlotTarget) {
+        requestedTarget = target
         onRequestRender()
     }
 
@@ -108,7 +145,7 @@ class SlotSceneRenderer(
     override fun onDrawFrame(gl: GL10?) {
         ensureBuffers()
         applyPendingCover()
-        drainCommands()
+        applyRequestedTarget()
 
         val now = System.nanoTime()
         val deltaSeconds = if (lastFrameNanos == 0L) 0f else (now - lastFrameNanos) / 1_000_000_000f
@@ -135,14 +172,31 @@ class SlotSceneRenderer(
         val scene = Mat4.multiply(Mat4.rotateX(tiltX), Mat4.rotateY(tiltY))
         val texture = coverTextureId.takeIf { it != 0 }
 
+        // A seated cartridge breathes rather than sitting perfectly still. Offsets are added to the
+        // resting pose rather than written into it, so an insert or eject still starts from rest and
+        // does not inherit whatever point the float had reached.
+        val floating = hasCartridge && animation == null && !reducedMotion
+        val drawPose = if (floating) {
+            if (idleStartNanos == 0L) idleStartNanos = now
+            val seconds = (now - idleStartNanos) / 1_000_000_000f
+            pose.copy(
+                y = pose.y + sin(seconds * IDLE_BOB_RATE) * IDLE_BOB_AMPLITUDE,
+                rotationY = pose.rotationY + sin(seconds * IDLE_SWAY_RATE) * IDLE_SWAY_AMPLITUDE,
+                rotationX = pose.rotationX + sin(seconds * IDLE_PITCH_RATE) * IDLE_PITCH_AMPLITUDE,
+            )
+        } else {
+            idleStartNanos = 0L
+            pose
+        }
+
         for (group in groups) {
             if (group.role == CartridgeModel.ROLE_CARTRIDGE && !hasCartridge) continue
             val local = if (group.role == CartridgeModel.ROLE_CARTRIDGE) {
                 Mat4.multiply(
-                    Mat4.translate(0f, pose.y, pose.z),
+                    Mat4.translate(0f, drawPose.y, drawPose.z),
                     Mat4.multiply(
-                        Mat4.rotateX(pose.rotationX),
-                        Mat4.multiply(Mat4.rotateY(pose.rotationY), Mat4.scale(pose.scale)),
+                        Mat4.rotateX(drawPose.rotationX),
+                        Mat4.multiply(Mat4.rotateY(drawPose.rotationY), Mat4.scale(drawPose.scale)),
                     ),
                 )
             } else {
@@ -151,10 +205,14 @@ class SlotSceneRenderer(
             program.draw(group, Mat4.multiply(scene, local), texture)
         }
 
-        // Keep asking for frames while anything is outstanding. Commands queued during an
-        // animation are only drained afterwards, so the queue itself has to keep the loop alive.
-        val hasQueuedWork = synchronized(pendingCommands) { pendingCommands.isNotEmpty() }
-        if (stillAnimating || stillSettling || hasQueuedWork) onRequestRender() else lastFrameNanos = 0L
+        // Keep asking for frames while anything is outstanding, including a target that arrived
+        // after this frame began sampling state, and the idle float, which never finishes.
+        val hasPendingTarget = requestedTarget != null
+        if (stillAnimating || stillSettling || hasPendingTarget || floating) {
+            onRequestRender()
+        } else {
+            lastFrameNanos = 0L
+        }
     }
 
     private fun ensureBuffers() {
@@ -173,15 +231,50 @@ class SlotSceneRenderer(
         coverTextureId = bitmap?.let { uploadTexture(it) } ?: 0
     }
 
-    private fun drainCommands() {
-        // Only one command is taken per frame: an insert must play out before the next one starts,
-        // otherwise fast navigation would stack animations on top of each other.
-        if (animation != null) return
-        val command = synchronized(pendingCommands) { pendingCommands.removeFirstOrNull() } ?: return
-        when (command) {
-            is SlotCommand.SetCover -> queueCover(command.cover)
-            is SlotCommand.Insert -> startInsert(command)
-            is SlotCommand.Eject -> startEject(command)
+    /**
+     * Reconciles what the slot shows with the newest request.
+     *
+     * Three cases: an empty slot inserts straight away, an occupied slot ejects the old cartridge
+     * first and inserts the new one after, and the same cartridge with new artwork only re-labels —
+     * so artwork resolving late never replays the insert.
+     */
+    private fun applyRequestedTarget() {
+        val target = requestedTarget ?: return
+        requestedTarget = null
+        reducedMotion = target.reducedMotion
+
+        if (target.cartridgeId == currentCartridgeId) {
+            when {
+                // Mid-swap: fold the change into the cartridge that is about to go in.
+                pendingInsert != null -> pendingInsert = target
+                target.cover !== appliedCover -> {
+                    appliedCover = target.cover
+                    queueCover(target.cover)
+                    applyPendingCover()
+                }
+            }
+            return
+        }
+
+        val wasSwapping = pendingInsert != null
+        currentCartridgeId = target.cartridgeId
+
+        when {
+            target.cartridgeId == null -> {
+                pendingInsert = null
+                startEject(target.reducedMotion)
+            }
+            // Already ejecting for an earlier swap: keep that eject and just change what follows it,
+            // so rapidly picking several games still plays one clean out-and-in.
+            wasSwapping -> pendingInsert = target
+            hasCartridge -> {
+                pendingInsert = target
+                startEject(target.reducedMotion)
+            }
+            else -> {
+                pendingInsert = null
+                startInsert(target)
+            }
         }
     }
 
@@ -192,12 +285,14 @@ class SlotSceneRenderer(
         }
     }
 
-    private fun startInsert(command: SlotCommand.Insert) {
-        queueCover(command.cover)
+    private fun startInsert(target: SlotTarget) {
+        appliedCover = target.cover
+        queueCover(target.cover)
         applyPendingCover()
         hasCartridge = true
-        // Start above and behind the slot, tilted, then drop into place.
-        pose = if (command.reducedMotion) {
+        // Start above and behind the slot, tilted, then drop into place. Any animation already
+        // running is dropped: this is the cartridge the user is now looking at.
+        pose = if (target.reducedMotion) {
             CartridgePose(y = 12f, z = 5f, rotationX = -0.03f, rotationY = 0.02f, scale = 0.99f)
         } else {
             CartridgePose(y = 48f, z = 23f, rotationX = -0.15f, rotationY = -0.17f, scale = 0.94f)
@@ -205,25 +300,31 @@ class SlotSceneRenderer(
         animation = PoseAnimation(
             from = pose,
             to = CartridgePose(),
-            durationNanos = if (command.reducedMotion) INSERT_REDUCED_NANOS else INSERT_NANOS,
+            durationNanos = if (target.reducedMotion) INSERT_REDUCED_NANOS else INSERT_NANOS,
             easing = ::easeOutBackSoft,
             onFinished = onInsertComplete,
         )
     }
 
-    private fun startEject(command: SlotCommand.Eject) {
+    private fun startEject(reducedMotion: Boolean) {
+        appliedCover = null
         if (!hasCartridge) {
-            onEjectComplete()
+            animation = null
+            // Nothing to eject; if this was the first half of a swap, go straight to the insert.
+            pendingInsert?.let { next ->
+                pendingInsert = null
+                startInsert(next)
+            } ?: onEjectComplete()
             return
         }
         animation = PoseAnimation(
             from = pose,
-            to = if (command.reducedMotion) {
+            to = if (reducedMotion) {
                 CartridgePose(y = 14f, z = 7f, rotationX = -0.05f, rotationY = 0.05f, scale = 0.98f)
             } else {
                 CartridgePose(y = 38f, z = 20f, rotationX = -0.12f, rotationY = 0.12f, scale = 0.98f)
             },
-            durationNanos = if (command.reducedMotion) EJECT_REDUCED_NANOS else EJECT_NANOS,
+            durationNanos = if (reducedMotion) EJECT_REDUCED_NANOS else EJECT_NANOS,
             easing = ::easeInOut,
             onFinished = {
                 hasCartridge = false
@@ -231,6 +332,11 @@ class SlotSceneRenderer(
                 releaseTexture(coverTextureId)
                 coverTextureId = 0
                 onEjectComplete()
+                // The old cartridge is out; drop the new one in behind it.
+                pendingInsert?.let { next ->
+                    pendingInsert = null
+                    startInsert(next)
+                }
             },
         )
     }
@@ -242,7 +348,9 @@ class SlotSceneRenderer(
         if (progress >= 1f) {
             animation = null
             current.onFinished()
-            return false
+            // An eject that is half of a swap starts the insert from inside onFinished, so report
+            // whether anything is animating *now* rather than assuming the scene has come to rest.
+            return animation != null
         }
         return true
     }
@@ -308,6 +416,18 @@ class SlotSceneRenderer(
         const val MAX_TILT_Y = 0.23f
         const val TILT_EPSILON = 0.0005f
         const val TILT_FOLLOW_RATE = 6f
+
+        /**
+         * Idle float of a seated cartridge: slow, small, and on three slightly detuned periods so
+         * the motion never reads as a single repeating loop. Suppressed under reduced motion, which
+         * also lets the surface go idle again.
+         */
+        const val IDLE_BOB_RATE = 1.05f
+        const val IDLE_BOB_AMPLITUDE = 0.9f
+        const val IDLE_SWAY_RATE = 0.73f
+        const val IDLE_SWAY_AMPLITUDE = 0.012f
+        const val IDLE_PITCH_RATE = 0.51f
+        const val IDLE_PITCH_AMPLITUDE = 0.005f
     }
 }
 

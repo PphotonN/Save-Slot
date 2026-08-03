@@ -4,6 +4,7 @@ import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.FlowRow
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.aspectRatio
@@ -65,7 +66,6 @@ import com.saveslot.app.ui.viewmodel.DetailViewModel
 @Composable
 fun DetailScreen(
     viewModel: DetailViewModel,
-    header: @Composable () -> Unit,
     modifier: Modifier = Modifier,
     contentPadding: PaddingValues = PaddingValues(),
 ) {
@@ -77,7 +77,6 @@ fun DetailScreen(
         contentPadding = contentPadding,
         verticalArrangement = Arrangement.spacedBy(14.dp),
     ) {
-        item(key = "header") { header() }
 
         if (game == null) {
             item(key = "loading") {
@@ -274,9 +273,16 @@ private fun DetailHero(game: Game, uiState: DetailUiState) {
                 color = extraColors.muted,
             )
         }
-        Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+        // A Row would clip or squeeze chips that do not fit; FlowRow moves a chip that would
+        // overflow onto the next line, so every genre stays fully readable on one line of its own.
+        // All genres are shown now that they can wrap, rather than an arbitrary first two.
+        FlowRow(
+            modifier = Modifier.fillMaxWidth(),
+            horizontalArrangement = Arrangement.spacedBy(8.dp),
+            verticalArrangement = Arrangement.spacedBy(8.dp),
+        ) {
             game.year?.let { Chip(text = it.toString(), accent = true) }
-            game.genres.take(2).forEach { Chip(text = it) }
+            game.genres.forEach { Chip(text = it) }
         }
         when (uiState.coverStatus) {
             CoverStatus.Searching -> InlineStatus("Шукаю обкладинку…")

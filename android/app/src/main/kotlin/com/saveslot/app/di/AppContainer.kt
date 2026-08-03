@@ -38,8 +38,11 @@ import com.saveslot.app.data.repository.GameRepository
 import com.saveslot.app.data.repository.LibraryRepository
 import com.saveslot.app.data.repository.SettingsRepository
 import com.saveslot.app.data.repository.TaxonomyRepository
+import com.saveslot.app.render.CartridgeDiskCache
 import com.saveslot.app.render.CartridgeModelLoader
+import com.saveslot.app.render.CartridgePreviewFactory
 import com.saveslot.app.system.HapticsController
+import java.io.File
 
 /**
  * Hand-written dependency graph.
@@ -57,6 +60,18 @@ class AppContainer(private val context: Context) {
     val hapticsController: HapticsController by lazy { HapticsController(context) }
 
     val cartridgeModelLoader: CartridgeModelLoader by lazy { CartridgeModelLoader(context) }
+
+    /**
+     * Owns a dedicated GL thread, an EGL context and both cartridge caches, so there must be exactly
+     * one for the process. It used to be `remember`ed inside the UI, which recreated the context — and
+     * discarded every drawn cartridge — whenever the composable left composition.
+     */
+    val cartridgePreviewFactory: CartridgePreviewFactory by lazy {
+        CartridgePreviewFactory(
+            modelLoader = cartridgeModelLoader,
+            diskCache = CartridgeDiskCache(directory = File(context.cacheDir, "cartridges")),
+        )
+    }
 
     private val database: SaveSlotDatabase by lazy { SaveSlotDatabase.build(context) }
 

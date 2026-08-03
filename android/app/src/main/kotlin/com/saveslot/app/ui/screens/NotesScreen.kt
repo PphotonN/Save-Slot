@@ -39,7 +39,6 @@ import com.saveslot.app.ui.viewmodel.LibraryViewModel
 fun NotesScreen(
     viewModel: LibraryViewModel,
     onGameClick: (Game) -> Unit,
-    header: @Composable () -> Unit,
     modifier: Modifier = Modifier,
     contentPadding: PaddingValues = PaddingValues(),
 ) {
@@ -50,7 +49,6 @@ fun NotesScreen(
         contentPadding = contentPadding,
         verticalArrangement = Arrangement.spacedBy(12.dp),
     ) {
-        item(key = "header") { header() }
 
         item(key = "heading") {
             SectionHeading(

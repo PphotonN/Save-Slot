@@ -32,7 +32,6 @@ import com.saveslot.app.ui.viewmodel.LibraryViewModel
 fun CollectionScreen(
     viewModel: LibraryViewModel,
     onGameClick: (Game) -> Unit,
-    header: @Composable () -> Unit,
     modifier: Modifier = Modifier,
     contentPadding: PaddingValues = PaddingValues(),
 ) {
@@ -47,7 +46,6 @@ fun CollectionScreen(
         horizontalArrangement = Arrangement.spacedBy(4.dp),
         verticalArrangement = Arrangement.spacedBy(8.dp),
     ) {
-        item(span = { GridItemSpan(maxLineSpan) }, key = "header") { header() }
 
         item(span = { GridItemSpan(maxLineSpan) }, key = "heading") {
             SectionHeading(

@@ -47,7 +47,6 @@ import com.saveslot.app.ui.viewmodel.SearchViewModel
 fun SearchScreen(
     viewModel: SearchViewModel,
     onGameClick: (Game) -> Unit,
-    header: @Composable () -> Unit,
     modifier: Modifier = Modifier,
     contentPadding: PaddingValues = PaddingValues(),
 ) {
@@ -62,7 +61,6 @@ fun SearchScreen(
         horizontalArrangement = Arrangement.spacedBy(4.dp),
         verticalArrangement = Arrangement.spacedBy(8.dp),
     ) {
-        item(span = { GridItemSpan(maxLineSpan) }, key = "header") { header() }
 
         item(span = { GridItemSpan(maxLineSpan) }, key = "search-field") {
             SearchField(

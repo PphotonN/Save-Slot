@@ -19,6 +19,7 @@ import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.combine
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.Job
 import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
@@ -61,6 +62,7 @@ class SlotViewModel(
         SlotStageState(
             model = parsedModel,
             cover = loaded?.cover,
+            loadedGameId = loaded?.gameId,
             loadedGameTitle = loaded?.title,
             reducedMotion = userSettings.reducedMotion,
         )
@@ -70,8 +72,9 @@ class SlotViewModel(
         initialValue = SlotStageState(),
     )
 
-    /** The game currently seated in the slot, if any — used to avoid re-inserting the same one. */
-    val loadedGameId: String? get() = loadedGame.value?.gameId
+    /** Newest request; anything older must not publish. Only touched on the main thread. */
+    private var labelRequest = 0
+    private var labelJob: Job? = null
 
     init {
         viewModelScope.launch {
@@ -79,46 +82,40 @@ class SlotViewModel(
         }
     }
 
-    /** Slides a cartridge for [gameId] into the slot, fetching its cover first. */
-    fun insert(gameId: String, title: String, coverUrl: String?) {
-        viewModelScope.launch {
+    /**
+     * States which cartridge the slot should be holding, and with what artwork.
+     *
+     * One entry point rather than separate insert and re-label calls. Two calls meant two racing
+     * cover loads: whichever finished last won, so opening game A then B could leave A in the slot,
+     * and — once cancellation was added — a cover update arriving first could cancel the insert it
+     * was meant to follow, leaving the cartridge unchanged entirely.
+     *
+     * Now the newest call always wins and always publishes a complete state. Whether that reads as
+     * an insert or just a new label is the renderer's decision, made from [LoadedCartridge.gameId],
+     * so calling this repeatedly as artwork resolves never replays the animation.
+     */
+    fun show(gameId: String, title: String, coverUrl: String?) {
+        val request = ++labelRequest
+        labelJob?.cancel()
+        labelJob = viewModelScope.launch {
             val loaded = coverUrl?.let { loadBitmap(it) }
             // viewModelScope runs on the main thread, and rasterising the placeholder is a real
             // canvas draw, so it is pushed off-thread like any other bitmap work.
             val cover = loaded ?: withContext(Dispatchers.Default) { FallbackCover.bitmap() }
+            if (request != labelRequest) {
+                ImageLog.d(ImageLog.TAG_SLOT) { "discard stale request for '$title'" }
+                return@launch
+            }
             ImageLog.d(ImageLog.TAG_SLOT) {
                 val label = when {
                     coverUrl == null -> "no url"
                     loaded == null -> "fetch failed, using fallback"
                     else -> ImageLog.key(coverUrl)
                 }
-                "insert '$title' label=$label ${cover.width}x${cover.height}"
+                val action = if (loadedGame.value?.gameId == gameId) "relabel" else "insert"
+                "$action '$title' label=$label ${cover.width}x${cover.height}"
             }
             loadedGame.value = LoadedCartridge(gameId = gameId, title = title, cover = cover)
-        }
-    }
-
-    /**
-     * Swaps the label on the cartridge already in the slot.
-     *
-     * Used when better artwork resolves after the game opened, or when the user switches platform,
-     * so the cover updates without replaying the insert animation.
-     */
-    fun updateCover(gameId: String, coverUrl: String?) {
-        viewModelScope.launch {
-            val current = loadedGame.value ?: return@launch
-            if (current.gameId != gameId) {
-                ImageLog.d(ImageLog.TAG_SLOT) { "ignore new label for $gameId; slot holds ${current.gameId}" }
-                return@launch
-            }
-            val cover = coverUrl?.let { loadBitmap(it) } ?: run {
-                ImageLog.w(ImageLog.TAG_SLOT) { "keeping old label; new one unusable ${ImageLog.key(coverUrl)}" }
-                return@launch
-            }
-            ImageLog.d(ImageLog.TAG_SLOT) {
-                "relabel '${current.title}' ${ImageLog.key(coverUrl)} ${cover.width}x${cover.height}"
-            }
-            loadedGame.value = current.copy(cover = cover)
         }
     }
 

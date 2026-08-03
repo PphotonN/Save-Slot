@@ -26,10 +26,16 @@ import kotlinx.coroutines.withContext
  * resulting bitmap is cached and drawn as an ordinary image. Cards then cost no more than a photo,
  * while still showing the actual 3D cartridge.
  *
+ * A drawn cartridge is also written to [diskCache], so a cover is rendered once per install rather
+ * than once per eviction: after the first time, showing a card is a bitmap decode with no GL at all.
+ *
  * All GL work is serialised through [mutex] and confined to [glDispatcher], because a single EGL
  * context cannot be current on two threads at once.
  */
-class CartridgePreviewFactory(private val modelLoader: CartridgeModelLoader) {
+class CartridgePreviewFactory(
+    private val modelLoader: CartridgeModelLoader,
+    private val diskCache: CartridgeDiskCache,
+) {
 
     private val mutex = Mutex()
 
@@ -47,10 +53,17 @@ class CartridgePreviewFactory(private val modelLoader: CartridgeModelLoader) {
         Thread(runnable, "cartridge-gl")
     }.asCoroutineDispatcher()
 
-    private val cache = object : LruCache<String, Bitmap>(CACHE_ENTRIES) {
+    /**
+     * Sized in bytes rather than entries, against the process heap limit.
+     *
+     * A fixed entry count is the wrong unit for bitmaps — 24 cartridges is 11 MB, which is a large
+     * share of a small heap and far too little on a large one. An eviction now only costs a disk
+     * decode rather than a re-render, but it is still worth holding a screen or two in memory.
+     */
+    private val cache = object : LruCache<String, Bitmap>(memoryCacheBytes()) {
+        override fun sizeOf(key: String, value: Bitmap): Int = value.allocationByteCount
+
         override fun entryRemoved(evicted: Boolean, key: String, oldValue: Bitmap, newValue: Bitmap?) {
-            // An eviction here means the next card asking for this cover pays for a full re-render,
-            // which is the usual reason a cartridge blinks back to flat artwork while scrolling.
             ImageLog.d(TAG) {
                 val reason = if (evicted) "evict" else "replace"
                 "$reason     ${ImageLog.key(key)} ${cacheStats()}"
@@ -75,30 +88,48 @@ class CartridgePreviewFactory(private val modelLoader: CartridgeModelLoader) {
      */
     suspend fun preview(key: String, cover: Bitmap?): Bitmap? {
         cache[key]?.let { return it }
+
+        // Already drawn on a previous run or before an eviction: decode it instead of rendering.
+        // Deliberately outside the GL lock, so reads do not queue behind an in-flight render.
+        diskCache.read(key)?.let { stored ->
+            cache.put(key, stored)
+            return stored
+        }
+
         return withContext(glDispatcher) {
-            mutex.withLock {
-                // A second caller may have rendered this cover while this one waited for the lock.
+            val outcome = mutex.withLock {
+                // Another caller may have produced this cover while this one waited for the lock.
                 cache[key]?.let {
                     ImageLog.d(TAG) { "lock hit  ${ImageLog.key(key)} ${cacheStats()}" }
-                    return@withLock it
+                    return@withLock Outcome(it, freshlyRendered = false)
                 }
-                if (initFailed) return@withLock null
+                if (initFailed) return@withLock Outcome(null, freshlyRendered = false)
                 if (!ensureContext()) {
                     ImageLog.w(TAG) { "GL unavailable; cartridges disabled for this session" }
                     initFailed = true
-                    return@withLock null
+                    return@withLock Outcome(null, freshlyRendered = false)
                 }
-                val rendered = runCatching { render(cover) }
+                val drawn = runCatching { render(cover) }
                     .onFailure { error -> ImageLog.w(TAG, error) { "render threw ${ImageLog.key(key)}" } }
                     .getOrNull()
-                if (rendered != null) {
-                    cache.put(key, rendered)
+                if (drawn != null) {
+                    cache.put(key, drawn)
                     ImageLog.d(TAG) { "put       ${ImageLog.key(key)} ${cacheStats()}" }
                 }
-                rendered
+                Outcome(drawn, freshlyRendered = drawn != null)
             }
+
+            // Persist only a fresh render, and only after releasing the lock: encoding and file I/O
+            // must not hold up the GL thread, which is the only thread that can draw the next
+            // cartridge. Rewriting a cache hit would also churn the directory on every scroll.
+            if (outcome.freshlyRendered && outcome.bitmap != null) {
+                diskCache.write(key, outcome.bitmap)
+            }
+            outcome.bitmap
         }
     }
+
+    private class Outcome(val bitmap: Bitmap?, val freshlyRendered: Boolean)
 
     fun cached(key: String): Bitmap? = cache[key]
 
@@ -206,12 +237,17 @@ class CartridgePreviewFactory(private val modelLoader: CartridgeModelLoader) {
             activeProgram.setCamera(Mat4.multiply(projection, view), camera)
 
             // A slight three-quarter tilt so the cartridge reads as a solid object in a still image.
+            //
+            // The framing is deliberate: at translateY -1.5 and scale 0.965 the top of the mesh
+            // projects to y = 1.039 in clip space, just past the edge, so the cartridge was cropped
+            // along its top. Dropping it and easing the scale puts the whole model inside the frame
+            // with roughly even headroom (-0.885..0.900).
             val modelMatrix = Mat4.centeredTransform(
                 center = cartridgeCenter,
-                translateY = -1.5f,
+                translateY = -8f,
                 rotationX = 0.045f,
                 rotationY = -0.08f,
-                scale = 0.965f,
+                scale = 0.92f,
             )
             val texture = textureId.takeIf { it != 0 }
             for (group in groups) activeProgram.draw(group, modelMatrix, texture)
@@ -231,21 +267,41 @@ class CartridgePreviewFactory(private val modelLoader: CartridgeModelLoader) {
         }
     }
 
-    private fun readPixels(): Bitmap {
-        val buffer = ByteBuffer.allocateDirect(WIDTH * HEIGHT * 4).order(ByteOrder.nativeOrder())
-        GLES20.glReadPixels(0, 0, WIDTH, HEIGHT, GLES20.GL_RGBA, GLES20.GL_UNSIGNED_BYTE, buffer)
-        buffer.rewind()
-        val bitmap = Bitmap.createBitmap(WIDTH, HEIGHT, Bitmap.Config.ARGB_8888)
-        bitmap.copyPixelsFromBuffer(buffer)
-        // GL's origin is bottom-left, Android's is top-left, so the read-back arrives inverted.
-        return flipVertically(bitmap)
-    }
+    /**
+     * Read-back scratch buffer, reused across renders.
+     *
+     * Allocating a fresh 470 KB direct buffer per cartridge put real pressure on native memory —
+     * with a screenful of cards it was megabytes of short-lived direct allocations, which is
+     * precisely what triggers `NativeAlloc` collections. Only ever touched on [glDispatcher].
+     */
+    private val readBackBuffer: ByteBuffer =
+        ByteBuffer.allocateDirect(WIDTH * HEIGHT * 4).order(ByteOrder.nativeOrder())
 
-    private fun flipVertically(source: Bitmap): Bitmap {
-        val matrix = android.graphics.Matrix().apply { preScale(1f, -1f) }
-        val flipped = Bitmap.createBitmap(source, 0, 0, source.width, source.height, matrix, false)
-        if (flipped !== source) source.recycle()
-        return flipped
+    /** Flip destination, also reused. Only touched on [glDispatcher]. */
+    private val flippedBuffer: ByteBuffer =
+        ByteBuffer.allocateDirect(WIDTH * HEIGHT * 4).order(ByteOrder.nativeOrder())
+
+    private fun readPixels(): Bitmap {
+        readBackBuffer.clear()
+        GLES20.glReadPixels(0, 0, WIDTH, HEIGHT, GLES20.GL_RGBA, GLES20.GL_UNSIGNED_BYTE, readBackBuffer)
+
+        // GL's origin is bottom-left and Android's is top-left, so rows arrive inverted. Copying
+        // them back-to-front is a handful of bulk buffer copies; the previous approach round-tripped
+        // through a second full-size bitmap and a scaling Matrix, allocating and immediately
+        // discarding ~470 KB per cartridge.
+        val rowStride = WIDTH * 4
+        flippedBuffer.clear()
+        for (row in HEIGHT - 1 downTo 0) {
+            readBackBuffer.limit((row + 1) * rowStride)
+            readBackBuffer.position(row * rowStride)
+            flippedBuffer.put(readBackBuffer)
+        }
+        readBackBuffer.clear()
+        flippedBuffer.rewind()
+
+        val bitmap = Bitmap.createBitmap(WIDTH, HEIGHT, Bitmap.Config.ARGB_8888)
+        bitmap.copyPixelsFromBuffer(flippedBuffer)
+        return bitmap
     }
 
     /** Tears down the hidden context; called when the app no longer needs previews. */
@@ -286,7 +342,18 @@ class CartridgePreviewFactory(private val modelLoader: CartridgeModelLoader) {
         const val WIDTH = 300
         const val HEIGHT = 392
 
-        /** Enough for a couple of screens of cards; bitmaps are ~470 KB each. */
-        const val CACHE_ENTRIES = 24
+        /** Share of the process heap the in-memory cartridges may occupy. */
+        const val MEMORY_CACHE_FRACTION = 0.12
+
+        /** Roughly two screens of cards at ~470 KB per cartridge. */
+        const val MIN_MEMORY_CACHE_BYTES = 12 * 1024 * 1024
+
+        fun memoryCacheBytes(): Int {
+            val heap = Runtime.getRuntime().maxMemory()
+            val share = (heap * MEMORY_CACHE_FRACTION).toLong()
+            return share.coerceAtLeast(MIN_MEMORY_CACHE_BYTES.toLong())
+                .coerceAtMost(Int.MAX_VALUE.toLong())
+                .toInt()
+        }
     }
 }

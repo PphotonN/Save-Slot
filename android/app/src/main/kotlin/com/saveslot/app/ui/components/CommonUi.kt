@@ -16,6 +16,7 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.text.style.TextAlign
+import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import com.saveslot.app.ui.theme.LocalSaveSlotColors
 
@@ -89,6 +90,12 @@ fun Chip(
         text = text,
         style = MaterialTheme.typography.labelLarge,
         color = if (accent) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurface,
+        // A chip's label always stays on one line; genre names are long enough ("пригодницький
+        // бойовик") that wrapping inside the pill turns it into a two-line block. The row of chips
+        // wraps instead — see the FlowRow at the call site.
+        maxLines = 1,
+        softWrap = false,
+        overflow = TextOverflow.Ellipsis,
         modifier = modifier
             .clip(RoundedCornerShape(999.dp))
             .background(

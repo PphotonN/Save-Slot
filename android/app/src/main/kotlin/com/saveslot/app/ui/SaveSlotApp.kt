@@ -33,7 +33,6 @@ import androidx.navigation.compose.rememberNavController
 import androidx.navigation.toRoute
 import coil3.SingletonImageLoader
 import com.saveslot.app.di.AppContainer
-import com.saveslot.app.render.CartridgePreviewFactory
 import com.saveslot.app.ui.components.CartridgePreviewProvider
 import com.saveslot.app.ui.components.LocalCartridgePreviews
 import com.saveslot.app.ui.components.SlotStage
@@ -57,9 +56,9 @@ import com.saveslot.app.ui.viewmodel.SlotViewModel
  * The app shell: bottom navigation, the shared slot stage, and the screen graph.
  *
  * The slot lives above the navigation graph because a cartridge stays seated while the user moves
- * between screens — it is the console, not a screen element. Each screen renders it as the first
- * item of its own scrolling list, so it scrolls away with the content instead of pinning a third of
- * the display.
+ * between screens — it is the console, not a screen element. It is deliberately fixed rather than
+ * scrolling with the content: a `GLSurfaceView`'s surface is positioned by the compositor, not by
+ * layout, so inside a scrolling list it trailed its slot and drew at the wrong height.
  */
 @Composable
 fun SaveSlotApp(container: AppContainer) {
@@ -68,11 +67,12 @@ fun SaveSlotApp(container: AppContainer) {
     val navController = rememberNavController()
     val snackbarHostState = remember { SnackbarHostState() }
 
-    val previewProvider = remember {
+    val previewProvider = remember(container) {
         CartridgePreviewProvider(
             context = context,
             imageLoader = imageLoader,
-            factory = CartridgePreviewFactory(container.cartridgeModelLoader),
+            // The factory itself is process-scoped; only this thin wrapper is per-composition.
+            factory = container.cartridgePreviewFactory,
         )
     }
 
@@ -104,11 +104,19 @@ fun SaveSlotApp(container: AppContainer) {
             },
         ) { scaffoldPadding ->
             val contentPadding = PaddingValues(
-                top = scaffoldPadding.calculateTopPadding(),
                 bottom = scaffoldPadding.calculateBottomPadding() + 16.dp,
             )
 
-            val header: @Composable () -> Unit = {
+            Column(
+                modifier = Modifier
+                    .fillMaxSize()
+                    .padding(top = scaffoldPadding.calculateTopPadding()),
+            ) {
+                // The console face sits above the navigation graph, outside every scroll container.
+                // It is one persistent GL surface for the whole app: a SurfaceView's position is
+                // updated by the compositor rather than by layout, so inside a scrolling list it
+                // rendered at the wrong height, and a per-screen instance rebuilt its EGL context
+                // and replayed the insert animation on each navigation.
                 Column(
                     modifier = Modifier
                         .fillMaxWidth()
@@ -134,13 +142,12 @@ fun SaveSlotApp(container: AppContainer) {
                         onEjectComplete = slotViewModel::onEjectComplete,
                     )
                 }
-            }
 
-            NavHost(
-                navController = navController,
-                startDestination = Destination.Discover,
-                modifier = Modifier.fillMaxSize(),
-            ) {
+                NavHost(
+                    navController = navController,
+                    startDestination = Destination.Discover,
+                    modifier = Modifier.fillMaxSize(),
+                ) {
                 composable<Destination.Discover> {
                     val vm: DiscoverViewModel = viewModel(
                         factory = SaveSlotViewModelFactory.discover(container, imageLoader),
@@ -148,7 +155,6 @@ fun SaveSlotApp(container: AppContainer) {
                     DiscoverScreen(
                         viewModel = vm,
                         onGameClick = { navController.openDetail(it.id) },
-                        header = header,
                         contentPadding = contentPadding,
                     )
                 }
@@ -160,7 +166,6 @@ fun SaveSlotApp(container: AppContainer) {
                     SearchScreen(
                         viewModel = vm,
                         onGameClick = { navController.openDetail(it.id) },
-                        header = header,
                         contentPadding = contentPadding,
                     )
                 }
@@ -172,7 +177,6 @@ fun SaveSlotApp(container: AppContainer) {
                     CollectionScreen(
                         viewModel = vm,
                         onGameClick = { navController.openDetail(it.id) },
-                        header = header,
                         contentPadding = contentPadding,
                     )
                 }
@@ -184,7 +188,6 @@ fun SaveSlotApp(container: AppContainer) {
                     NotesScreen(
                         viewModel = vm,
                         onGameClick = { navController.openDetail(it.id) },
-                        header = header,
                         contentPadding = contentPadding,
                     )
                 }
@@ -203,7 +206,6 @@ fun SaveSlotApp(container: AppContainer) {
                     SettingsScreen(
                         viewModel = vm,
                         onTestHaptics = slotViewModel::testHaptics,
-                        header = header,
                         contentPadding = contentPadding,
                     )
                 }
@@ -216,15 +218,13 @@ fun SaveSlotApp(container: AppContainer) {
                     val detailState by vm.uiState.collectAsStateWithLifecycle()
                     val slotCover by vm.slotCover.collectAsStateWithLifecycle()
 
-                    // Seat the cartridge on arrival, and re-label it when better art resolves.
-                    LaunchedEffect(route.gameId, detailState.game?.title) {
+                    // One statement of what the slot should hold, re-sent as the cover resolves.
+                    // Two separate effects raced here: both ran on first composition, and the
+                    // cover one — firing with a null cover — cancelled the seating it was meant to
+                    // follow, so the cartridge sometimes never changed at all.
+                    LaunchedEffect(route.gameId, detailState.game?.title, slotCover) {
                         val game = detailState.game ?: return@LaunchedEffect
-                        if (slotViewModel.loadedGameId != game.id) {
-                            slotViewModel.insert(game.id, game.title, slotCover)
-                        }
-                    }
-                    LaunchedEffect(slotCover) {
-                        detailState.game?.let { slotViewModel.updateCover(it.id, slotCover) }
+                        slotViewModel.show(game.id, game.title, slotCover)
                     }
 
                     val message = detailState.message
@@ -237,9 +237,9 @@ fun SaveSlotApp(container: AppContainer) {
 
                     DetailScreen(
                         viewModel = vm,
-                        header = header,
                         contentPadding = contentPadding,
                     )
+                    }
                 }
             }
         }

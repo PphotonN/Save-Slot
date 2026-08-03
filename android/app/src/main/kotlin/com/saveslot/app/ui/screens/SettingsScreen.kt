@@ -40,7 +40,6 @@ import com.saveslot.app.ui.viewmodel.SettingsViewModel
 fun SettingsScreen(
     viewModel: SettingsViewModel,
     onTestHaptics: () -> Unit,
-    header: @Composable () -> Unit,
     modifier: Modifier = Modifier,
     contentPadding: PaddingValues = PaddingValues(),
 ) {
@@ -53,7 +52,6 @@ fun SettingsScreen(
         contentPadding = contentPadding,
         verticalArrangement = Arrangement.spacedBy(14.dp),
     ) {
-        item(key = "header") { header() }
 
         item(key = "heading") {
             SectionHeading(

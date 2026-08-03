@@ -10,6 +10,7 @@ import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.aspectRatio
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.offset
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
@@ -148,7 +149,11 @@ fun GameCard(
                         bitmap = rendered,
                         contentDescription = null,
                         contentScale = ContentScale.Fit,
-                        modifier = Modifier.fillMaxSize(),
+                        // Sits low in the frame rather than centred, so the cartridge reads as
+                        // resting in the card instead of floating in the middle of it.
+                        modifier = Modifier
+                            .fillMaxSize()
+                            .offset(y = CARTRIDGE_DROP),
                     )
                     coverUrl != null -> AsyncImage(
                         model = coverUrl,
@@ -205,6 +210,9 @@ fun GameCard(
         }
     }
 }
+
+/** How far down the card the rendered cartridge sits. */
+private val CARTRIDGE_DROP = 0.dp
 
 /** Cartridge proportions, matching the model's label face. */
 internal const val CARD_ASPECT_RATIO = 0.77f
