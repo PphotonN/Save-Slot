@@ -9,13 +9,12 @@ data class SearchFilters(
     val includeUnknownYear: Boolean = true,
     val artworkOnly: Boolean = false,
 ) {
+    /** Filters that can be sent to the remote catalogue rather than applied only to local results. */
+    val hasRemoteCriteria: Boolean
+        get() = platform.isNotEmpty() || genre.isNotEmpty() || yearFrom > 0 || yearTo > 0
+
     val isActive: Boolean
-        get() = platform.isNotEmpty() ||
-            genre.isNotEmpty() ||
-            yearFrom > 0 ||
-            yearTo > 0 ||
-            !includeUnknownYear ||
-            artworkOnly
+        get() = hasRemoteCriteria || !includeUnknownYear || artworkOnly
 
     val activeCount: Int
         get() = listOf(
