@@ -46,7 +46,9 @@ jobs:
           PY
           python3 -m py_compile /tmp/apply_console_v3.py
           python3 /tmp/apply_console_v3.py pico-launcher
-          python3 patchrepo/dspico_console_v3/fix_console_v3.py pico-launcher
+          for f in patchrepo/dspico_console_v3/fix_console_v3*.py; do
+            python3 "$f" pico-launcher
+          done
 
       - name: Build launcher
         working-directory: pico-launcher
