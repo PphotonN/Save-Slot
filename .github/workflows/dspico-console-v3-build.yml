@@ -40,8 +40,7 @@ jobs:
           from pathlib import Path
           p = Path('/tmp/apply_console_v3.py')
           s = p.read_text()
-          marker = '# Above uses GetMaterialColorScheme not present; patch AppBarView to expose it.'
-          start = s.index(marker)
+          start = s.index("rel='arm9/source/romBrowser/views/AppBarView.h'")
           end = s.index("replace('arm9/source/romBrowser/views/RomBrowserAppBarView.cpp'", start)
           p.write_text(s[:start] + s[end:])
           PY
