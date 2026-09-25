@@ -1,0 +1,199 @@
+        u32 end=pos, lastSpace=pos;
+        while(end<n && end-pos<37 && s[end] && s[end]!='\n'){ if(s[end]==' ')lastSpace=end; end++; }
+        if(end<n && s[end]!='\n' && end-pos>=37 && lastSpace>pos)end=lastSpace;
+        line->SetText(s+pos,end-pos);
+        pos=end; while(pos<n && (s[pos]==' '||s[pos]=='\n'||s[pos]=='\r'))pos++;
+    }
+}
+
+void CustomFileInfoView::Update()
+{
+    BannerView::Update();
+    _title->SetPosition(58,22);
+    for(int i=0;i<(int)_desc.size();i++) _desc[i]->SetPosition(12,58+i*16);
+    _status->SetPosition(156,4);
+    _hint->SetPosition(12,172);
+    if(_icon){ _icon->SetPosition(16,18); _icon->Update(); }
+    if((++_frames % 60)==1)
+    {
+        rtc_datetime_t dt; rtc_readDateTime(&dt);
+        int battery=battery_getLevel();
+        char text[40];
+        if(battery==0) snprintf(text,sizeof(text),"%02x:%02x  [|   ]",dt.time.hour,dt.time.minute);
+        else snprintf(text,sizeof(text),"%02x:%02x  [||||]",dt.time.hour,dt.time.minute);
+        _status->SetText(text);
+    }
+    _hint->SetText(hints_areEnabled() ? "A Launch   Y Favorite   X Options   L/R Tabs" : "");
+}
+
+void CustomFileInfoView::Draw(GraphicsContext& gc)
+{
+    const Rgb<8,8,8> bg(238,241,244), fg(34,39,44), sub(65,72,80);
+    _title->SetBackgroundColor(bg); _title->SetForegroundColor(fg);
+    _status->SetBackgroundColor(bg); _status->SetForegroundColor(sub);
+    _hint->SetBackgroundColor(bg); _hint->SetForegroundColor(sub);
+    for(auto& l:_desc){ l->SetBackgroundColor(bg); l->SetForegroundColor(sub); }
+    BannerView::Draw(gc);
+    if(_icon) _icon->Draw(gc, Rgb<8,8,8>(255,255,255));
+}
+''')
+write('arm9/source/backlightIpc.h', r'''#pragma once
+void backlight_setLevel(unsigned int level);
+int battery_getLevel();
+void hints_setEnabled(bool enabled);
+bool hints_areEnabled();
+''')
+write('arm9/source/backlightIpc.cpp', r'''#include "common.h"
+#include <libtwl/ipc/ipcFifoSystem.h>
+#include "ipcChannels.h"
+#include "backlightIpc.h"
+
+static volatile int sBatteryLevel = 1;
+static bool sHandlerInstalled = false;
+static bool sHintsEnabled = true;
+
+static void pmicIpcHandler(u32, u32 data, void*)
+{
+    if (data & 0x100)
+        sBatteryLevel = data & 1;
+}
+static void ensureHandler()
+{
+    if(!sHandlerInstalled){ ipc_setChannelHandler(IPC_CHANNEL_PMIC, pmicIpcHandler, nullptr); sHandlerInstalled=true; }
+}
+void backlight_setLevel(unsigned int level)
+{
+    ensureHandler();
+    ipc_sendFifoMessage(IPC_CHANNEL_PMIC, level & 3);
+}
+int battery_getLevel()
+{
+    ensureHandler();
+    ipc_sendFifoMessage(IPC_CHANNEL_PMIC, 0x100);
+    return sBatteryLevel;
+}
+void hints_setEnabled(bool enabled){ sHintsEnabled=enabled; }
+bool hints_areEnabled(){ return sHintsEnabled; }
+''')
+replace('arm9/source/romBrowser/RomBrowserController.cpp',
+'''    ConsoleUiState::SetThemeColor(appSettingsService->GetAppSettings().themeColor);''',
+'''    ConsoleUiState::SetThemeColor(appSettingsService->GetAppSettings().themeColor);\n    hints_setEnabled(appSettingsService->GetAppSettings().showHints);''')
+replace('arm9/source/romBrowser/RomBrowserController.cpp',
+'''    _appSettingsService->GetAppSettings().showHints = value;\n    SaveUiSettingsAsync();''',
+'''    _appSettingsService->GetAppSettings().showHints = value;\n    hints_setEnabled(value);\n    SaveUiSettingsAsync();''')
+
+rel='arm7/source/main.cpp'
+replace(rel,
+'''static volatile u8 sPendingBacklight = 0;''',
+'''static volatile u8 sPendingBacklight = 0;\nstatic volatile u8 sPendingBatteryRequest = 0;''')
+replace(rel,
+'''static void backlightIpcHandler(u32 channel, u32 data, void* arg)\n{\n    sPendingBacklight = (data & PMIC_BACKLIGHT_MASK) + 1;\n}''',
+'''static void backlightIpcHandler(u32 channel, u32 data, void* arg)\n{\n    if (data & 0x100) sPendingBatteryRequest = 1;\n    else sPendingBacklight = (data & PMIC_BACKLIGHT_MASK) + 1;\n}''')
+replace(rel,
+'''static void applyPendingBacklight()\n{''',
+'''static void sendBatteryIfRequested()\n{\n    if (mem_swapByte(0, &sPendingBatteryRequest))\n    {\n        u8 battery = pmic_readRegister(PMIC_REG_BATTERY);\n        // DS/DS Lite exposes a low-battery bit rather than a continuous gauge.\n        ipc_sendFifoMessage(IPC_CHANNEL_PMIC, 0x100 | ((battery & PMIC_BATTERY_LOW) ? 0 : 1));\n    }\n}\n\nstatic void applyPendingBacklight()\n{''')
+replace(rel,
+'''        applyPendingBacklight();\n        checkLidSleep();''',
+'''        applyPendingBacklight();\n        sendBatteryIfRequested();\n        checkLidSleep();''')
+
+write('arm9/source/romBrowser/viewModels/DisplaySettingsViewModel.h', r'''#pragma once
+#include "../IRomBrowserController.h"
+#include "services/settings/RomBrowserDisplaySettings.h"
+class DisplaySettingsViewModel
+{
+public:
+    explicit DisplaySettingsViewModel(IRomBrowserController* c):_c(c),_d(c->GetRomBrowserDisplaySettings()){}
+    RomBrowserSortMode GetRomBrowserSortMode() const { return _d.sortMode; }
+    void SetRomBrowserSortMode(RomBrowserSortMode m){ if(_d.sortMode!=m){_d.sortMode=m;_d.layout=RomBrowserLayout::CoverFlow;_c->SetRomBrowserDisplaySettings(_d);} }
+    int GetBacklightLevel() const { return _c->GetBacklightLevel(); }
+    void SetBacklightLevel(int v){ _c->SetBacklightLevel(v); }
+    bool GetShowHints() const { return _c->GetShowHints(); }
+    void ToggleHints(){ _c->SetShowHints(!_c->GetShowHints()); }
+    u8 GetThemeColor() const { return _c->GetThemeColor(); }
+    void CycleThemeColor(){ _c->CycleThemeColor(); }
+    void Close(){ _c->HideDisplaySettings(); }
+private:
+    IRomBrowserController* _c; RomBrowserDisplaySettings _d;
+};
+''')
+write('arm9/source/romBrowser/views/DisplaySettingsBottomSheetView.h', r'''#pragma once
+#include <array>
+#include "BottomSheetView.h"
+#include "gui/views/Label2DView.h"
+#include "IconButton2DView.h"
+#include "../viewModels/DisplaySettingsViewModel.h"
+class MaterialColorScheme; class IFontRepository;
+class DisplaySettingsBottomSheetView : public BottomSheetView
+{
+    SHARED_ONLY(DisplaySettingsBottomSheetView)
+public:
+    void InitVram(const VramContext&) override;
+    void Update() override;
+    void Draw(GraphicsContext&) override;
+    bool HandleInput(const InputProvider&, FocusManager&) override;
+    SharedPtr<View> MoveFocus(const SharedPtr<View>&,FocusMoveDirection,View*) override;
+    void SetGraphics(const IconButton2DView::VramToken&) { }
+    void Focus(FocusManager& f) override { f.Focus(_colorButton); }
+protected: void Close() override { _vm->Close(); }
+private:
+    DisplaySettingsViewModel* _vm;
+    const MaterialColorScheme* _scheme;
+    SharedPtr<Label2DView> _title,_colorLabel,_sortLabel,_lightLabel,_hintsLabel;
+    SharedPtr<IconButton2DView> _colorButton,_hintsButton;
+    std::array<SharedPtr<IconButton2DView>,2> _sort;
+    std::array<SharedPtr<IconButton2DView>,4> _light;
+    DisplaySettingsBottomSheetView(DisplaySettingsViewModel*,const MaterialColorScheme*,const IFontRepository*);
+    u32 LoadIcon(IVramManager&,const unsigned int*,u32) const;
+};
+''')
+write('arm9/source/romBrowser/views/DisplaySettingsBottomSheetView.cpp', r'''#include "common.h"
+#include "gui/GraphicsContext.h"
+#include "gui/VramContext.h"
+#include "gui/IVramManager.h"
+#include <libtwl/dma/dmaNitro.h>
+#include "gui/input/InputProvider.h"
+#include "themes/material/MaterialColorScheme.h"
+#include "themes/IFontRepository.h"
+#include "sortNameAscendingIcon.h"
+#include "recentIcon.h"
+#include "brightness1Icon.h"
+#include "brightness2Icon.h"
+#include "brightness3Icon.h"
+#include "brightness4Icon.h"
+#include "themeIcon.h"
+#include "hideEmptyFoldersIcon.h"
+#include "console/ConsoleUiState.h"
+#include "DisplaySettingsBottomSheetView.h"
+
+DisplaySettingsBottomSheetView::DisplaySettingsBottomSheetView(DisplaySettingsViewModel* vm,const MaterialColorScheme* s,const IFontRepository* f)
+:_vm(vm),_scheme(s),
+ _title(Label2DView::CreateShared(180,16,32,f->GetFont(FontType::Medium11))),
+ _colorLabel(Label2DView::CreateShared(145,16,48,f->GetFont(FontType::Regular10))),
+ _sortLabel(Label2DView::CreateShared(64,16,24,f->GetFont(FontType::Regular10))),
+ _lightLabel(Label2DView::CreateShared(64,16,24,f->GetFont(FontType::Regular10))),
+ _hintsLabel(Label2DView::CreateShared(120,16,32,f->GetFont(FontType::Regular10))),
+ _colorButton(IconButton2DView::CreateShared(IconButtonView::Type::Tonal,IconButtonView::State::NoToggle,md::sys::color::surfaceContainerLow,s)),
+ _hintsButton(IconButton2DView::CreateShared(IconButtonView::Type::Tonal,IconButtonView::State::ToggleUnselected,md::sys::color::surfaceContainerLow,s))
+{
+    _title->SetText(u"Console settings"); AddChildTail(_title.GetPointer());
+    _sortLabel->SetText(u"Sort"); AddChildTail(_sortLabel.GetPointer());
+    _lightLabel->SetText(u"Light"); AddChildTail(_lightLabel.GetPointer());
+    _hintsLabel->SetText(u"Hints"); AddChildTail(_hintsLabel.GetPointer());
+    AddChildTail(_colorLabel.GetPointer());
+    _colorButton->SetAction([](IconButtonView*,void* a){((DisplaySettingsBottomSheetView*)a)->_vm->CycleThemeColor();},this); AddChildTail(_colorButton.GetPointer());
+    _hintsButton->SetAction([](IconButtonView*,void* a){((DisplaySettingsBottomSheetView*)a)->_vm->ToggleHints();},this); AddChildTail(_hintsButton.GetPointer());
+    for(auto& b:_sort){b=IconButton2DView::CreateShared(IconButtonView::Type::Tonal,IconButtonView::State::ToggleUnselected,md::sys::color::surfaceContainerLow,s);AddChildTail(b.GetPointer());}
+    _sort[0]->SetAction([](IconButtonView*,void*a){((DisplaySettingsBottomSheetView*)a)->_vm->SetRomBrowserSortMode(RomBrowserSortMode::NameAscending);},this);
+    _sort[1]->SetAction([](IconButtonView*,void*a){((DisplaySettingsBottomSheetView*)a)->_vm->SetRomBrowserSortMode(RomBrowserSortMode::LaunchCount);},this);
+    for(int i=0;i<4;i++){_light[i]=IconButton2DView::CreateShared(IconButtonView::Type::Tonal,IconButtonView::State::ToggleUnselected,md::sys::color::surfaceContainerLow,s);AddChildTail(_light[i].GetPointer());}
+    for(int i=0;i<4;i++) _light[i]->SetAction([](IconButtonView* sender,void*a){auto self=(DisplaySettingsBottomSheetView*)a;for(int j=0;j<4;j++)if(self->_light[j].GetPointer()==sender)self->_vm->SetBacklightLevel(j);},this);
+}
+
+u32 DisplaySettingsBottomSheetView::LoadIcon(IVramManager& v,const unsigned int* tiles,u32 len) const {u32 o=v.Alloc(len);dma_ntrCopy32(3,tiles,v.GetVramAddress(o),len);return o;}
+void DisplaySettingsBottomSheetView::InitVram(const VramContext& c){BottomSheetView::InitVram(c);auto v=c.GetObjVramManager();if(!v)return;
+ _colorButton->SetIconVramOffset(LoadIcon(*v,themeIconTiles,themeIconTilesLen)); _hintsButton->SetIconVramOffset(LoadIcon(*v,hideEmptyFoldersIconTiles,hideEmptyFoldersIconTilesLen));
+ _sort[0]->SetIconVramOffset(LoadIcon(*v,sortNameAscendingIconTiles,sortNameAscendingIconTilesLen)); _sort[1]->SetIconVramOffset(LoadIcon(*v,recentIconTiles,recentIconTilesLen));
+ const unsigned int* t[4]={brightness1IconTiles,brightness2IconTiles,brightness3IconTiles,brightness4IconTiles}; const u32 n[4]={brightness1IconTilesLen,brightness2IconTilesLen,brightness3IconTilesLen,brightness4IconTilesLen}; for(int i=0;i<4;i++)_light[i]->SetIconVramOffset(LoadIcon(*v,t[i],n[i])); }
+void DisplaySettingsBottomSheetView::Update(){BottomSheetView::Update();
+ _title->SetPosition(16,_position.y+12); _colorLabel->SetPosition(52,_position.y+43); _colorButton->SetPosition(16,_position.y+34);
+ _sortLabel->SetPosition(16,_position.y+78); _sort[0]->SetPosition(70,_position.y+70); _sort[1]->SetPosition(106,_position.y+70);
