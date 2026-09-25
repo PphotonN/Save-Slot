@@ -1,0 +1,58 @@
+name: DSpico Console v3 Build
+
+on:
+  push:
+    branches:
+      - dspico-console-v3-build
+    paths:
+      - 'dspico_console_v3/**'
+      - '.github/workflows/dspico-console-v3-build.yml'
+  workflow_dispatch:
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    container: skylyrac/blocksds:slim-v1.16.0
+    steps:
+      - name: Install tools
+        run: |
+          apt-get update
+          apt-get install -y --no-install-recommends git python3 ca-certificates
+
+      - name: Checkout patch repository
+        uses: actions/checkout@v4
+        with:
+          ref: dspico-console-v3-build
+          path: patchrepo
+
+      - name: Checkout Pico Launcher Enhanced
+        uses: actions/checkout@v4
+        with:
+          repository: rasalopa/pico-launcher-enhanced
+          ref: enhanced
+          submodules: recursive
+          path: pico-launcher
+
+      - name: Assemble and apply console patch
+        run: |
+          cat patchrepo/dspico_console_v3/chunk*.txt > /tmp/apply_console_v3.py
+          python3 -m py_compile /tmp/apply_console_v3.py
+          python3 /tmp/apply_console_v3.py pico-launcher
+
+      - name: Build launcher
+        working-directory: pico-launcher
+        run: make -j2
+
+      - name: Stage artifact
+        run: |
+          mkdir -p artifact
+          cp pico-launcher/LAUNCHER.nds artifact/_picoboot.nds
+          cp pico-launcher/LICENSE.txt artifact/LICENSE_PICO_LAUNCHER.txt
+          printf 'DSpico Console v3\nBuild from rasalopa/pico-launcher-enhanced + DSpico console frontend patch.\n' > artifact/BUILD_INFO.txt
+
+      - name: Upload build
+        uses: actions/upload-artifact@v4
+        with:
+          name: DSPico_Console_v3
+          path: artifact/
+          if-no-files-found: error
