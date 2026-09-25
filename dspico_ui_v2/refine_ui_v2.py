@@ -22,5 +22,8 @@ replace('arm9/source/romBrowser/Theme/Material/MaterialFileInfoCardView.cpp',
 replace('arm9/source/romBrowser/Theme/Material/MaterialFileInfoCardView.cpp',
         'u"A  PLAY        X  OPTIONS        B  BACK"',
         'u"A  PLAY          Y  INFO          B  BACK"')
+replace('arm9/source/themes/material/MaterialSubBackground.cpp',
+        '_materialColorScheme->inverseOnSurface, _materialColorScheme->secondaryContainer);',
+        '_materialColorScheme->inverseOnSurface, _materialColorScheme->inverseOnSurface);')
 
 print('DSpico UI v2 refinement complete')
