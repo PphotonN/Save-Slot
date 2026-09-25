@@ -36,6 +36,15 @@ jobs:
       - name: Assemble and apply console patch
         run: |
           cat patchrepo/dspico_console_v3/chunk*.txt > /tmp/apply_console_v3.py
+          python3 - <<'PY'
+          from pathlib import Path
+          p = Path('/tmp/apply_console_v3.py')
+          s = p.read_text()
+          marker = '# Above uses GetMaterialColorScheme not present; patch AppBarView to expose it.'
+          start = s.index(marker)
+          end = s.index("replace('arm9/source/romBrowser/views/RomBrowserAppBarView.cpp'", start)
+          p.write_text(s[:start] + s[end:])
+          PY
           python3 -m py_compile /tmp/apply_console_v3.py
           python3 /tmp/apply_console_v3.py pico-launcher
 
