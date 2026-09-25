@@ -17,7 +17,7 @@ jobs:
       - name: Install tools
         run: |
           apt-get update
-          apt-get install -y --no-install-recommends git python3 ca-certificates
+          apt-get install -y --no-install-recommends git python3 ca-certificates curl
 
       - name: Checkout patch repository
         uses: actions/checkout@v4
@@ -52,12 +52,26 @@ jobs:
         working-directory: pico-launcher
         run: make -j2
 
-      - name: Stage artifact
+      - name: Stage artifact and emulators
         run: |
-          mkdir -p artifact
+          mkdir -p artifact/_pico/emulators
           cp pico-launcher/LAUNCHER.nds artifact/_picoboot.nds
           cp pico-launcher/LICENSE.txt artifact/LICENSE_PICO_LAUNCHER.txt
-          printf 'DSpico Console v3\nBuild from rasalopa/pico-launcher-enhanced + DSpico console frontend patch.\n' > artifact/BUILD_INFO.txt
+          curl -L --fail --retry 3 -o artifact/_pico/emulators/GBARunner2.nds \
+            https://github.com/Gericom/GBARunner2/releases/download/v20200812-131430_6e4ce45/GBARunner2_arm7dldi_ds.nds
+          curl -L --fail --retry 3 -o /tmp/gameyob.zip \
+            https://github.com/Stewmath/GameYob/releases/download/v0.5.2/gameyob.zip
+          python3 - <<'PY'
+          import zipfile, pathlib, shutil
+          z=zipfile.ZipFile('/tmp/gameyob.zip')
+          nds=[n for n in z.namelist() if n.lower().endswith('.nds')]
+          if not nds: raise SystemExit('GameYob archive has no NDS binary')
+          preferred=next((n for n in nds if pathlib.PurePosixPath(n).name.lower()=='gameyob.nds'), nds[0])
+          with z.open(preferred) as src, open('artifact/_pico/emulators/GameYob.nds','wb') as dst:
+              shutil.copyfileobj(src,dst)
+          print('GameYob binary:', preferred)
+          PY
+          printf 'DSpico Console v3\nBuild from rasalopa/pico-launcher-enhanced + DSpico console frontend patch.\nBundled: GBARunner2 + GameYob.\n' > artifact/BUILD_INFO.txt
 
       - name: Upload build
         uses: actions/upload-artifact@v4
