@@ -1,0 +1,203 @@
+from pathlib import Path
+import sys
+
+ROOT = Path(sys.argv[1]).resolve() if len(sys.argv)>1 else Path('.').resolve()
+
+def p(rel): return ROOT/rel
+
+def read(rel): return p(rel).read_text(encoding='utf-8')
+
+def write(rel, text):
+    f=p(rel); f.parent.mkdir(parents=True, exist_ok=True); f.write_text(text,encoding='utf-8'); print('wrote',rel)
+
+def replace(rel, old, new, count=1):
+    f=p(rel); s=f.read_text(encoding='utf-8'); n=s.count(old)
+    if n < count: raise SystemExit(f'{rel}: expected >= {count} match(es), found {n}: {old[:120]!r}')
+    f.write_text(s.replace(old,new,count),encoding='utf-8'); print('patched',rel)
+
+# ---------------------------------------------------------------------------
+# Persistent console UI settings
+# ---------------------------------------------------------------------------
+replace('arm9/source/services/settings/AppSettings.h',
+'''    s8 backlightLevel = -1;\n    RomBrowserDisplaySettings romBrowserDisplaySettings;''',
+'''    s8 backlightLevel = -1;\n    // Console front-end state. 0=Favorite, 1=DS, 2=GBA, 3=GBC, 4=GB.\n    u8 libraryTab = 1;\n    bool showHints = true;\n    // Raspberry-derived accent preset used by the shared animated background.\n    u8 themeColor = 0;\n    RomBrowserDisplaySettings romBrowserDisplaySettings;''')
+
+rel='arm9/source/services/settings/JsonAppSettingsSerializer.thumb.cpp'
+replace(rel,
+'''#define KEY_BACKLIGHT_LEVEL          "backlightLevel"\n#define KEY_FILE_ASSOCIATIONS''',
+'''#define KEY_BACKLIGHT_LEVEL          "backlightLevel"\n#define KEY_LIBRARY_TAB               "libraryTab"\n#define KEY_SHOW_HINTS                "showHints"\n#define KEY_THEME_COLOR               "themeColor"\n#define KEY_FILE_ASSOCIATIONS''')
+replace(rel,
+'''    if (appSettings->backlightLevel >= 0)\n        json[KEY_BACKLIGHT_LEVEL] = appSettings->backlightLevel;\n    serializeFileAssociations''',
+'''    if (appSettings->backlightLevel >= 0)\n        json[KEY_BACKLIGHT_LEVEL] = appSettings->backlightLevel;\n    json[KEY_LIBRARY_TAB] = appSettings->libraryTab;\n    json[KEY_SHOW_HINTS] = appSettings->showHints;\n    json[KEY_THEME_COLOR] = appSettings->themeColor;\n    serializeFileAssociations''')
+replace(rel,
+'''    if (backlightLevel >= 0 && backlightLevel <= 3)\n        appSettings->backlightLevel = (s8)backlightLevel;\n\n    RomBrowserLayout''',
+'''    if (backlightLevel >= 0 && backlightLevel <= 3)\n        appSettings->backlightLevel = (s8)backlightLevel;\n\n    u32 libraryTab = json[KEY_LIBRARY_TAB] | appSettings->libraryTab;\n    appSettings->libraryTab = libraryTab <= 4 ? (u8)libraryTab : 1;\n    appSettings->showHints = json[KEY_SHOW_HINTS] | appSettings->showHints;\n    u32 themeColor = json[KEY_THEME_COLOR] | appSettings->themeColor;\n    appSettings->themeColor = (u8)(themeColor % 6);\n\n    RomBrowserLayout''')
+
+# ---------------------------------------------------------------------------
+# Sort by name or number of launches
+# ---------------------------------------------------------------------------
+write('arm9/source/services/settings/RomBrowserSortMode.h', '''#pragma once\n\nenum class RomBrowserSortMode\n{\n    NameAscending,\n    LaunchCount,\n    // kept for backwards-compatible settings files; no longer exposed in UI\n    NameDescending,\n    LastModified\n};\n''')
+write('arm9/source/romBrowser/SdFolderSortType.h', '''#pragma once\n\nenum class SdFolderSortType\n{\n    Name,\n    LaunchCount,\n    LastModified\n};\n''')
+replace(rel,
+'''        case RomBrowserSortMode::NameDescending:\n            return "NameDescending";\n        case RomBrowserSortMode::LastModified:''',
+'''        case RomBrowserSortMode::LaunchCount:\n            return "LaunchCount";\n        case RomBrowserSortMode::NameDescending:\n            return "NameDescending";\n        case RomBrowserSortMode::LastModified:''')
+replace(rel,
+'''    else if (!strcasecmp(romBrowserDisplayModeString, "NameDescending"))\n        romBrowserSortMode = RomBrowserSortMode::NameDescending;\n    else if (!strcasecmp(romBrowserDisplayModeString, "LastModified"))''',
+'''    else if (!strcasecmp(romBrowserDisplayModeString, "LaunchCount"))\n        romBrowserSortMode = RomBrowserSortMode::LaunchCount;\n    else if (!strcasecmp(romBrowserDisplayModeString, "NameDescending"))\n        romBrowserSortMode = RomBrowserSortMode::NameDescending;\n    else if (!strcasecmp(romBrowserDisplayModeString, "LastModified"))''')
+
+rel='arm9/source/romBrowser/viewModels/RomBrowserViewModel.cpp'
+replace(rel,
+'''        case RomBrowserSortMode::NameDescending:\n        {\n            filterSortParams = SdFolderFilterSortParams(\n                SdFolderSortType::Name, SdFolderSortDirection::Descending, false);\n            break;\n        }''',
+'''        case RomBrowserSortMode::LaunchCount:\n        {\n            filterSortParams = SdFolderFilterSortParams(\n                SdFolderSortType::LaunchCount, SdFolderSortDirection::Descending, false);\n            break;\n        }\n        case RomBrowserSortMode::NameDescending:\n        {\n            filterSortParams = SdFolderFilterSortParams(\n                SdFolderSortType::Name, SdFolderSortDirection::Descending, false);\n            break;\n        }''')
+
+rel='arm9/source/romBrowser/SdFolder.cpp'
+replace(rel,
+'''            switch (sortType)\n            {\n                case SdFolderSortType::Name:\n                default:\n                {\n                    result = CompareName(a, b);\n                    break;\n                }\n            }\n            return sortDirection == SdFolderSortDirection::Ascending ? result : !result;''',
+'''            switch (sortType)\n            {\n                case SdFolderSortType::LaunchCount:\n                {\n                    u32 ac = 0, bc = 0;\n                    if (filterSortParams.gameDataService)\n                    {\n                        const auto* ae = filterSortParams.gameDataService->GetEntry(a->GetFileName());\n                        const auto* be = filterSortParams.gameDataService->GetEntry(b->GetFileName());\n                        ac = ae ? ae->launchCount : 0;\n                        bc = be ? be->launchCount : 0;\n                    }\n                    if (ac == bc)\n                        return CompareName(a, b);\n                    // Direction is intentionally handled here to avoid ! on equal values.\n                    return sortDirection == SdFolderSortDirection::Ascending ? ac < bc : ac > bc;\n                }\n                case SdFolderSortType::Name:\n                default:\n                {\n                    result = CompareName(a, b);\n                    break;\n                }\n            }\n            return sortDirection == SdFolderSortDirection::Ascending ? result : !result;''')
+
+# ---------------------------------------------------------------------------
+# Shared UI state used by Raspberry-derived animated background
+# ---------------------------------------------------------------------------
+write('arm9/source/console/ConsoleUiState.h', r'''#pragma once
+#include "common.h"
+
+namespace ConsoleUiState
+{
+    void SetThemeColor(u8 color);
+    u8 GetThemeColor();
+    void Tick();
+    u32 GetFrame();
+    u16 MakeBackgroundPixel(int x, int globalY);
+    const char* GetColorName(u8 color);
+}
+''')
+write('arm9/source/console/ConsoleUiState.cpp', r'''#include "common.h"
+#include "ConsoleUiState.h"
+
+namespace
+{
+    volatile u8 sColor = 0;
+    volatile u32 sFrame = 0;
+    const u8 kColors[6][3] =
+    {
+        { 94, 181, 211 }, // Raspberry blue
+        { 205, 92, 142 }, // berry
+        { 137, 108, 207 },// violet
+        { 224, 140, 72 }, // orange
+        { 84, 173, 125 }, // green
+        { 150, 158, 170 } // neutral
+    };
+    const char* const kNames[6] = { "Blue", "Berry", "Violet", "Orange", "Green", "Neutral" };
+
+    static inline int clamp255(int v) { return v < 0 ? 0 : (v > 255 ? 255 : v); }
+}
+
+void ConsoleUiState::SetThemeColor(u8 color) { sColor = color % 6; }
+u8 ConsoleUiState::GetThemeColor() { return sColor; }
+void ConsoleUiState::Tick() { sFrame++; }
+u32 ConsoleUiState::GetFrame() { return sFrame; }
+const char* ConsoleUiState::GetColorName(u8 color) { return kNames[color % 6]; }
+
+u16 ConsoleUiState::MakeBackgroundPixel(int x, int globalY)
+{
+    const u8* c = kColors[sColor % 6];
+    // Low-cost continuous field: broad diagonal bands + two soft pseudo-waves.
+    // globalY is 0..383, so the hinge is mathematically continuous.
+    int band = ((x + globalY * 2) >> 5) & 7;
+    int wave = ((x * 3 + globalY * 5) >> 4) & 15;
+    int lift = (band < 4 ? band : 7 - band) * 6 + (wave < 8 ? wave : 15 - wave) * 2;
+    int shade = 24 + lift;
+    int r = clamp255((c[0] * 3 + 255) / 4 + shade / 3);
+    int g = clamp255((c[1] * 3 + 255) / 4 + shade / 3);
+    int b = clamp255((c[2] * 3 + 255) / 4 + shade / 3);
+    return 0x8000 | ((r >> 3) & 31) | (((g >> 3) & 31) << 5) | (((b >> 3) & 31) << 10);
+}
+''')
+
+# ---------------------------------------------------------------------------
+# Raspberry shared animated background: same generated field on both displays
+# ---------------------------------------------------------------------------
+write('arm9/source/themes/custom/CustomSubBackground.h', r'''#pragma once
+#include "../background/IThemeBackground.h"
+class CustomSubBackground : public IThemeBackground
+{
+public:
+    void LoadResources(const ITheme& theme, const VramContext& vramContext) override;
+    void Update() override { }
+    void Draw(GraphicsContext& graphicsContext) override { }
+    void VBlank() override;
+private:
+    u8 _loadedColor = 0xFF;
+    void Rebuild();
+};
+''')
+write('arm9/source/themes/custom/CustomSubBackground.cpp', r'''#include "common.h"
+#include <nds/arm9/background.h>
+#include "console/ConsoleUiState.h"
+#include "CustomSubBackground.h"
+
+void CustomSubBackground::Rebuild()
+{
+    u16* dst = (u16*)((u8*)BG_GFX_SUB + 0x8000);
+    for (int y = 0; y < 192; y++)
+        for (int x = 0; x < 256; x++)
+            dst[y * 256 + x] = ConsoleUiState::MakeBackgroundPixel(x, y);
+    _loadedColor = ConsoleUiState::GetThemeColor();
+}
+
+void CustomSubBackground::LoadResources(const ITheme&, const VramContext&)
+{
+    Rebuild();
+}
+
+void CustomSubBackground::VBlank()
+{
+    if (_loadedColor != ConsoleUiState::GetThemeColor())
+        Rebuild();
+    ConsoleUiState::Tick();
+    REG_DISPCNT_SUB = (REG_DISPCNT_SUB & ~0xF) | 5 | (4 << 8);
+    REG_BG2CNT_SUB = BG_BMP16_256x256 | BG_PRIORITY_3 | BG_COLOR_16 | BG_MAP_BASE(2);
+    REG_BG2HOFS_SUB = 0;
+    REG_BG2VOFS_SUB = 0;
+    REG_BG2X_SUB = (ConsoleUiState::GetFrame() >> 2) << 8;
+    REG_BG2Y_SUB = 0;
+    REG_BG2PA_SUB = 256;
+    REG_BG2PB_SUB = 0;
+    REG_BG2PC_SUB = 0;
+    REG_BG2PD_SUB = 256;
+}
+''')
+write('arm9/source/themes/custom/CustomMainBackground.h', r'''#pragma once
+#include "../background/IThemeBackground.h"
+class CustomMainBackground : public IThemeBackground
+{
+public:
+    void LoadResources(const ITheme& theme, const VramContext& vramContext) override;
+    void Update() override { }
+    void Draw(GraphicsContext& graphicsContext) override;
+    void VBlank() override;
+private:
+    u8 _loadedColor = 0xFF;
+    void Rebuild();
+};
+''')
+write('arm9/source/themes/custom/CustomMainBackground.cpp', r'''#include "common.h"
+#include <string.h>
+#include <libtwl/mem/memVram.h>
+#include "gui/Gx.h"
+#include "console/ConsoleUiState.h"
+#include "CustomMainBackground.h"
+
+#define BLOCK_VTX_PACK(x, y, z) (((x)&0x3FF) | ((((y) >> 3) & 0x3FF) << 10) | ((z) << 20))
+
+void CustomMainBackground::Rebuild()
+{
+    auto tmp = std::unique_ptr<u16[]>(new(cache_align) u16[256 * 192]);
+    for (int y = 0; y < 192; y++)
+        for (int x = 0; x < 256; x++)
+            tmp[y * 256 + x] = ConsoleUiState::MakeBackgroundPixel(x, y + 192);
+    mem_setVramAMapping(MEM_VRAM_AB_LCDC);
+    memcpy((void*)0x6800000, tmp.get(), 256 * 192 * 2);
+    mem_setVramAMapping(MEM_VRAM_AB_TEX_SLOT_1);
+    _loadedColor = ConsoleUiState::GetThemeColor();
+}
