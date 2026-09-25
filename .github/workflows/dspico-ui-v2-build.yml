@@ -30,7 +30,9 @@ jobs:
           path: pico
 
       - name: Apply DSpico UI v2
-        run: python3 patchrepo/dspico_ui_v2/apply_ui_v2.py pico
+        run: |
+          python3 patchrepo/dspico_ui_v2/apply_ui_v2.py pico
+          python3 patchrepo/dspico_ui_v2/refine_ui_v2.py pico
 
       - name: Build
         working-directory: pico
