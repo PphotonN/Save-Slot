@@ -1,0 +1,209 @@
+        u32 s = v->Alloc(settingsIconTilesLen);
+        dma_ntrCopy32(3, settingsIconTiles, v->GetVramAddress(s), settingsIconTilesLen);
+        _appBarView->SetButtonIcon(BUTTON_SETTINGS, s);
+    }
+}
+
+void RomBrowserAppBarView::Update()
+{
+    ViewContainer::Update();
+}
+
+void RomBrowserAppBarView::Draw(GraphicsContext& gc)
+{
+    const auto& scheme = _appBarView->GetMaterialColorScheme();
+    u8 active = _viewModel->GetLibraryTab();
+    for (int i=0;i<5;i++)
+    {
+        _tabs[i]->SetBackgroundColor(scheme.inverseOnSurface);
+        _tabs[i]->SetForegroundColor(i == active ? scheme.primary : scheme.onSurfaceVariant);
+    }
+    ViewContainer::Draw(gc);
+}
+
+SharedPtr<View> RomBrowserAppBarView::MoveFocus(const SharedPtr<View>& currentFocus,
+    FocusMoveDirection direction, View* source)
+{
+    if (source == _appBarView.GetPointer())
+        return View::MoveFocus(currentFocus, direction, source);
+    if (source == GetParent())
+        return _appBarView->MoveFocus(currentFocus, direction, this);
+    return nullptr;
+}
+''')
+rel='arm9/source/romBrowser/views/AppBarView.h'
+replace(rel,
+'''    virtual void SetButtonIcon(int index, u32 vramOffset) = 0;''',
+'''    virtual void SetButtonIcon(int index, u32 vramOffset) = 0;\n    virtual const MaterialColorScheme& GetMaterialColorScheme() const = 0;''')
+replace(rel,
+'''    virtual void SetButtonIcon(int index, u32 vramOffset) = 0;\n    virtual const MaterialColorScheme& GetMaterialColorScheme() const = 0;''',
+'''    virtual void SetButtonIcon(int index, u32 vramOffset) = 0;''')
+replace('arm9/source/romBrowser/views/RomBrowserAppBarView.cpp',
+'''    const auto& scheme = _appBarView->GetMaterialColorScheme();\n    u8 active = _viewModel->GetLibraryTab();\n    for (int i=0;i<5;i++)\n    {\n        _tabs[i]->SetBackgroundColor(scheme.inverseOnSurface);\n        _tabs[i]->SetForegroundColor(i == active ? scheme.primary : scheme.onSurfaceVariant);\n    }''',
+'''    u8 active = _viewModel->GetLibraryTab();\n    for (int i=0;i<5;i++)\n    {\n        _tabs[i]->SetBackgroundColor(Rgb<8,8,8>(238, 241, 244));\n        _tabs[i]->SetForegroundColor(i == active ? Rgb<8,8,8>(35, 92, 120) : Rgb<8,8,8>(64, 70, 76));\n    }''')
+
+rel='arm9/source/romBrowser/views/RomBrowserBottomScreenView.h'
+replace(rel, 'class IRomBrowserViewFactory;','class IRomBrowserViewFactory;\nclass IFontRepository;') if 'class IRomBrowserViewFactory;' in read(rel) else None
+replace('arm9/source/romBrowser/views/RomBrowserBottomScreenView.cpp',
+'''    const IRomBrowserViewFactory* romBrowserViewFactory,\n    VBlankTextureLoader* vblankTextureLoader)''',
+'''    const IRomBrowserViewFactory* romBrowserViewFactory,\n    const IFontRepository* fontRepository,\n    VBlankTextureLoader* vblankTextureLoader)''')
+replace('arm9/source/romBrowser/views/RomBrowserBottomScreenView.cpp',
+'''        *displayMode, romBrowserViewFactory))''',
+'''        *displayMode, romBrowserViewFactory, fontRepository))''')
+replace('arm9/source/romBrowser/views/RomBrowserBottomScreenView.cpp',
+'''#include "gui/input/InputProvider.h"''',
+'''#include "gui/input/InputProvider.h"\n#include "themes/IFontRepository.h"''')
+replace('arm9/source/romBrowser/views/RomBrowserBottomScreenView.h',
+'''        const IRomBrowserViewFactory* romBrowserViewFactory,\n        VBlankTextureLoader* vblankTextureLoader);''',
+'''        const IRomBrowserViewFactory* romBrowserViewFactory,\n        const IFontRepository* fontRepository,\n        VBlankTextureLoader* vblankTextureLoader);''')
+h=read('arm9/source/romBrowser/views/RomBrowserBottomScreenView.h')
+if 'class IFontRepository;' not in h:
+    h=h.replace('class VBlankTextureLoader;', 'class VBlankTextureLoader;\nclass IFontRepository;')
+    write('arm9/source/romBrowser/views/RomBrowserBottomScreenView.h',h)
+
+replace('arm9/source/App.cpp',
+'''        _theme->GetRomBrowserViewFactory(),\n        &_vblankTextureLoader);''',
+'''        _theme->GetRomBrowserViewFactory(),\n        _theme->GetFontRepository(),\n        &_vblankTextureLoader);''', count=2)
+
+# ---------------------------------------------------------------------------
+# Top metadata: icon + title + Ukrainian description + clock/battery status
+# ---------------------------------------------------------------------------
+write('arm9/source/romBrowser/RetroLibraryMetadata.h', r'''#pragma once
+#include "common.h"
+class RetroLibraryMetadata
+{
+public:
+    bool Load(const char* fileName);
+    const char16_t* GetTitleAndDescription() const { return _display; }
+private:
+    char16_t _display[768] = {0};
+};
+''')
+write('arm9/source/romBrowser/RetroLibraryMetadata.cpp', r'''#include "common.h"
+#include <string.h>
+#include <stdio.h>
+#include "json/ArduinoJson.h"
+#include "fat/File.h"
+#include "RetroLibraryMetadata.h"
+
+static void appendUtf8(char16_t*& out, char16_t* end, const char* s)
+{
+    const unsigned char* p=(const unsigned char*)s;
+    while (*p && out+1<end)
+    {
+        u32 c=*p++;
+        if (c<0x80) { *out++=(char16_t)c; continue; }
+        if ((c&0xE0)==0xC0 && *p) c=((c&0x1F)<<6)|(*p++&0x3F);
+        else if ((c&0xF0)==0xE0 && p[0] && p[1]) { c=((c&0x0F)<<12)|((p[0]&0x3F)<<6)|(p[1]&0x3F); p+=2; }
+        else { c='?'; }
+        if (c<=0xFFFF) *out++=(char16_t)c;
+    }
+    *out=0;
+}
+
+bool RetroLibraryMetadata::Load(const char* fileName)
+{
+    char path[384];
+    snprintf(path,sizeof(path),"/_pico/metadata/user/%s.json",fileName);
+    File f;
+    if (f.Open(path, FA_READ|FA_OPEN_EXISTING)!=FR_OK) return false;
+    u32 sz=f.GetSize(); if (!sz || sz>8192) return false;
+    auto data=std::unique_ptr<u8[]>(new(cache_align) u8[sz+1]);
+    u32 got=0; if (f.Read(data.get(),sz,got)!=FR_OK) return false; data[got]=0;
+    DynamicJsonDocument json(8192);
+    if (deserializeJson(json,data.get(),got)!=DeserializationError::Ok) return false;
+    const char* title=json["title"] | "";
+    const char* desc=json["shortDescriptionUa"].as<const char*>();
+    if (!desc || !desc[0]) desc=json["shortDescription"] | "";
+    if (!title[0] && !desc[0]) return false;
+    char16_t* o=_display; char16_t* end=_display+767;
+    appendUtf8(o,end,title); if (o<end) *o++='\n'; if (o<end) *o++='\n'; *o=0;
+    appendUtf8(o,end,desc);
+    return true;
+}
+''')
+replace('arm9/source/romBrowser/views/RomBrowserTopScreenView.cpp',
+'''#include "../IRomBrowserController.h"''',
+'''#include "../IRomBrowserController.h"\n#include "../RetroLibraryMetadata.h"''')
+replace('arm9/source/romBrowser/views/RomBrowserTopScreenView.cpp',
+'''            bool fileNameAsTitle = true;\n            const char16_t* gameTitle = info ? info->GetGameTitle() : nullptr;\n            if (gameTitle && gameTitle[0] != 0)\n            {\n                _fileInfoView->SetGameTitleAsync(_viewModel->GetBgTaskQueue(), gameTitle);\n                fileNameAsTitle = false;\n            }''',
+'''            bool fileNameAsTitle = true;\n            RetroLibraryMetadata metadata;\n            if (metadata.Load(item.GetFileName()))\n            {\n                _fileInfoView->SetGameTitleAsync(_viewModel->GetBgTaskQueue(), metadata.GetTitleAndDescription());\n                fileNameAsTitle = false;\n            }\n            else\n            {\n                const char16_t* gameTitle = info ? info->GetGameTitle() : nullptr;\n                if (gameTitle && gameTitle[0] != 0)\n                {\n                    _fileInfoView->SetGameTitleAsync(_viewModel->GetBgTaskQueue(), gameTitle);\n                    fileNameAsTitle = false;\n                }\n            }''')
+
+write('arm9/source/romBrowser/Theme/custom/CustomFileInfoView.h', r'''#pragma once
+#include <array>
+#include "core/task/TaskQueue.h"
+#include "gui/views/Label2DView.h"
+#include "../../views/BannerView.h"
+
+class IFontRepository;
+class CustomThemeInfo;
+class CustomFileInfoView : public BannerView
+{
+    SHARED_ONLY(CustomFileInfoView)
+public:
+    void Update() override;
+    void Draw(GraphicsContext& graphicsContext) override;
+    void SetFirstLineAsync(TaskQueueBase*, const char*, bool) override;
+    void SetFirstLineAsync(TaskQueueBase*, const char16_t*, bool) override;
+    void SetFirstLineAsync(TaskQueueBase*, const char16_t*, u32, bool) override;
+    void SetSecondLineAsync(TaskQueueBase*, const char16_t*) override { }
+    void SetSecondLineAsync(TaskQueueBase*, const char16_t*, u32) override { }
+    void SetThirdLineAsync(TaskQueueBase*, const char16_t*) override;
+    void SetThirdLineAsync(TaskQueueBase*, const char16_t*, u32) override;
+    void SetFileNameAsync(TaskQueueBase* q, const TCHAR* n, bool title) override { if(title) BannerView::SetFileNameAsync(q,n,true); }
+    Rectangle GetBounds() const override { return Rectangle(0,0,256,192); }
+private:
+    SharedPtr<Label2DView> _title;
+    std::array<SharedPtr<Label2DView>,7> _desc;
+    SharedPtr<Label2DView> _status;
+    SharedPtr<Label2DView> _hint;
+    const CustomThemeInfo* _info;
+    u32 _frames=0;
+    CustomFileInfoView(const CustomThemeInfo*, const IFontRepository*);
+    void SetDescription(const char16_t*, u32);
+};
+''')
+write('arm9/source/romBrowser/Theme/custom/CustomFileInfoView.cpp', r'''#include "common.h"
+#include <stdio.h>
+#include "themes/IFontRepository.h"
+#include "themes/custom/CustomThemeInfo.h"
+#include "rtcIpc.h"
+#include "backlightIpc.h"
+#include "CustomFileInfoView.h"
+
+CustomFileInfoView::CustomFileInfoView(const CustomThemeInfo* info, const IFontRepository* fonts)
+    : _title(Label2DView::CreateShared(188,16,80,fonts->GetFont(FontType::Medium11)))
+    , _status(Label2DView::CreateShared(92,16,32,fonts->GetFont(FontType::Medium7_5)))
+    , _hint(Label2DView::CreateShared(232,16,96,fonts->GetFont(FontType::Medium7_5)))
+    , _info(info)
+{
+    _title->SetEllipsisStyle(LabelView::EllipsisStyle::Ellipsis);
+    AddChildTail(_title.GetPointer());
+    for (auto& l:_desc)
+    {
+        l=Label2DView::CreateShared(232,16,64,fonts->GetFont(FontType::Medium7_5));
+        l->SetEllipsisStyle(LabelView::EllipsisStyle::None);
+        AddChildTail(l.GetPointer());
+    }
+    _status->SetHorizontalAlignment(Alignment::End);
+    AddChildTail(_status.GetPointer());
+    _hint->SetHorizontalAlignment(Alignment::Center);
+    AddChildTail(_hint.GetPointer());
+}
+
+void CustomFileInfoView::SetFirstLineAsync(TaskQueueBase* q,const char* s,bool e)
+{ _title->SetEllipsisStyle(e?LabelView::EllipsisStyle::Ellipsis:LabelView::EllipsisStyle::None); if(q)_title->SetTextAsync(q,s);else _title->SetText(s); }
+void CustomFileInfoView::SetFirstLineAsync(TaskQueueBase* q,const char16_t* s,bool e)
+{ _title->SetEllipsisStyle(e?LabelView::EllipsisStyle::Ellipsis:LabelView::EllipsisStyle::None); if(q)_title->SetTextAsync(q,s);else _title->SetText(s); }
+void CustomFileInfoView::SetFirstLineAsync(TaskQueueBase* q,const char16_t* s,u32 n,bool e)
+{ _title->SetEllipsisStyle(e?LabelView::EllipsisStyle::Ellipsis:LabelView::EllipsisStyle::None); if(q)_title->SetTextAsync(q,s,n);else _title->SetText(s,n); }
+void CustomFileInfoView::SetThirdLineAsync(TaskQueueBase*,const char16_t* s){ u32 n=0;while(s[n])n++;SetDescription(s,n); }
+void CustomFileInfoView::SetThirdLineAsync(TaskQueueBase*,const char16_t* s,u32 n){ SetDescription(s,n); }
+
+void CustomFileInfoView::SetDescription(const char16_t* s,u32 n)
+{
+    u32 pos=0;
+    for(auto& line:_desc)
+    {
+        while(pos<n && (s[pos]==' '||s[pos]=='\n'||s[pos]=='\r'))pos++;
+        if(pos>=n){ line->SetText(u""); continue; }
