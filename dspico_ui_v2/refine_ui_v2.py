@@ -22,6 +22,9 @@ replace('arm9/source/romBrowser/Theme/Material/MaterialFileInfoCardView.cpp',
 replace('arm9/source/romBrowser/Theme/Material/MaterialFileInfoCardView.cpp',
         'u"A  PLAY        X  OPTIONS        B  BACK"',
         'u"A  PLAY          Y  INFO          B  BACK"')
+replace('arm9/source/romBrowser/Theme/Material/MaterialFileInfoCardView.h',
+        'void InitVram(const VramContext& vramContext) override { ViewContainer::InitVram(vramContext); }',
+        'void InitVram(const VramContext& vramContext) override { BannerView::InitVram(vramContext); }')
 replace('arm9/source/themes/material/MaterialSubBackground.cpp',
         '_materialColorScheme->inverseOnSurface, _materialColorScheme->secondaryContainer);',
         '_materialColorScheme->inverseOnSurface, _materialColorScheme->inverseOnSurface);')
