@@ -17,8 +17,8 @@ replace('arm9/source/romBrowser/Theme/Material/MaterialFileInfoCardView.cpp',
         'Label2DView::CreateShared(108, 16, 48, fonts->GetFont(FontType::Medium7_5))',
         'Label2DView::CreateShared(116, 16, 48, fonts->GetFont(FontType::Medium7_5))')
 replace('arm9/source/romBrowser/Theme/Material/MaterialFileInfoCardView.cpp',
-        'line->SetPosition(140, 49 + i * 17)',
-        'line->SetPosition(128, 49 + i * 17)')
+        '_description[i]->SetPosition(140, 49 + i * 17)',
+        '_description[i]->SetPosition(128, 49 + i * 17)')
 replace('arm9/source/romBrowser/Theme/Material/MaterialFileInfoCardView.cpp',
         'u"A  PLAY        X  OPTIONS        B  BACK"',
         'u"A  PLAY          Y  INFO          B  BACK"')
