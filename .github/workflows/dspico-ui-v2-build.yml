@@ -1,0 +1,46 @@
+name: DSpico UI v2 Build
+
+on:
+  push:
+    branches: ["dspico-ui-v2-build"]
+    paths:
+      - "dspico_ui_v2/**"
+      - ".github/workflows/dspico-ui-v2-build.yml"
+  workflow_dispatch:
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    container: skylyrac/blocksds:slim-v1.16.0
+    steps:
+      - name: Checkout build patch
+        uses: actions/checkout@v4
+        with:
+          path: patchrepo
+
+      - name: Checkout Pico Launcher
+        uses: actions/checkout@v4
+        with:
+          repository: LNH-team/pico-launcher
+          ref: develop
+          submodules: recursive
+          path: pico
+
+      - name: Apply DSpico UI v2
+        run: python3 patchrepo/dspico_ui_v2/apply_ui_v2.py pico
+
+      - name: Build
+        working-directory: pico
+        run: make
+
+      - name: Prepare DSpico files
+        run: cp pico/LAUNCHER.nds pico/_picoboot.nds
+
+      - name: Publish build
+        uses: actions/upload-artifact@v4
+        with:
+          name: DSPico_UI_v2
+          path: |
+            pico/_picoboot.nds
+            pico/LAUNCHER.nds
+            pico/_pico/
