@@ -1,0 +1,42 @@
+ _lightLabel->SetPosition(16,_position.y+112); for(int i=0;i<4;i++)_light[i]->SetPosition(70+i*36,_position.y+104);
+ _hintsLabel->SetPosition(52,_position.y+147); _hintsButton->SetPosition(16,_position.y+138);
+ char c[64]; snprintf(c,sizeof(c),"Color: %s",ConsoleUiState::GetColorName(_vm->GetThemeColor())); _colorLabel->SetText(c);
+ auto sm=_vm->GetRomBrowserSortMode(); _sort[0]->SetState(sm==RomBrowserSortMode::NameAscending?IconButtonView::State::ToggleSelected:IconButtonView::State::ToggleUnselected); _sort[1]->SetState(sm==RomBrowserSortMode::LaunchCount?IconButtonView::State::ToggleSelected:IconButtonView::State::ToggleUnselected);
+ int l=_vm->GetBacklightLevel();for(int i=0;i<4;i++)_light[i]->SetState(i==l?IconButtonView::State::ToggleSelected:IconButtonView::State::ToggleUnselected);
+ _hintsButton->SetState(_vm->GetShowHints()?IconButtonView::State::ToggleSelected:IconButtonView::State::ToggleUnselected);
+}
+void DisplaySettingsBottomSheetView::Draw(GraphicsContext& g){g.SetClipArea(GetBounds());u32 p=g.SetPriority(1);auto bg=_scheme->GetColor(md::sys::color::surfaceContainerLow);for(auto* l:{_title.GetPointer(),_colorLabel.GetPointer(),_sortLabel.GetPointer(),_lightLabel.GetPointer(),_hintsLabel.GetPointer()}){l->SetBackgroundColor(bg);l->SetForegroundColor(_scheme->onSurface);}BottomSheetView::Draw(g);g.SetPriority(p);g.ResetClipArea();}
+bool DisplaySettingsBottomSheetView::HandleInput(const InputProvider&i,FocusManager&){if(i.Triggered(InputKey::B)){_vm->Close();return true;}return false;}
+SharedPtr<View> DisplaySettingsBottomSheetView::MoveFocus(const SharedPtr<View>& cur,FocusMoveDirection d,View*)
+{
+ if(cur.GetPointer()==_colorButton.GetPointer()) return d==FocusMoveDirection::Down?_sort[0]:nullptr;
+ if(cur.GetPointer()==_sort[0].GetPointer()){if(d==FocusMoveDirection::Right)return _sort[1];if(d==FocusMoveDirection::Up)return _colorButton;if(d==FocusMoveDirection::Down)return _light[0];}
+ if(cur.GetPointer()==_sort[1].GetPointer()){if(d==FocusMoveDirection::Left)return _sort[0];if(d==FocusMoveDirection::Up)return _colorButton;if(d==FocusMoveDirection::Down)return _light[1];}
+ for(int x=0;x<4;x++)if(cur.GetPointer()==_light[x].GetPointer()){if(d==FocusMoveDirection::Left)return _light[(x+3)%4];if(d==FocusMoveDirection::Right)return _light[(x+1)%4];if(d==FocusMoveDirection::Up)return _sort[x?1:0];if(d==FocusMoveDirection::Down)return _hintsButton;}
+ if(cur.GetPointer()==_hintsButton.GetPointer()) return d==FocusMoveDirection::Up?_light[0]:nullptr;
+ return nullptr;
+}
+''')
+
+# ---------------------------------------------------------------------------
+# Force CoverFlow as the only browser layout and hide top cover.
+# ---------------------------------------------------------------------------
+replace('arm9/source/services/settings/RomBrowserDisplaySettings.h',
+'''RomBrowserLayout layout = RomBrowserLayout::HorizontalIconGrid;''',
+'''RomBrowserLayout layout = RomBrowserLayout::CoverFlow;''') if 'RomBrowserLayout layout = RomBrowserLayout::HorizontalIconGrid;' in read('arm9/source/services/settings/RomBrowserDisplaySettings.h') else None
+# If default is different, still force on deserialize/set by patching controller constructor.
+replace('arm9/source/romBrowser/RomBrowserController.cpp',
+'''    ConsoleUiState::SetThemeColor(appSettingsService->GetAppSettings().themeColor);''',
+'''    appSettingsService->GetAppSettings().romBrowserDisplaySettings.layout = RomBrowserLayout::CoverFlow;\n    ConsoleUiState::SetThemeColor(appSettingsService->GetAppSettings().themeColor);''')
+# Custom view factory: no top cover.
+replace('arm9/source/romBrowser/Theme/custom/CustomRomBrowserViewFactory.h',
+'''    Point GetTopCoverPosition() const override
+    {
+        return _customThemeInfo->topCoverInfo.GetPosition();
+    }''',
+'''    Point GetTopCoverPosition() const override
+    {
+        return Point(0, 0);
+    }''')
+
+print('DSpico Console v3 patch complete')
