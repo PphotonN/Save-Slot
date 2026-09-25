@@ -13,6 +13,9 @@ jobs:
     runs-on: ubuntu-latest
     container: skylyrac/blocksds:slim-v1.16.0
     steps:
+      - name: Install patch runtime
+        run: apt-get update && apt-get install -y python3
+
       - name: Checkout build patch
         uses: actions/checkout@v4
         with:
