@@ -50,6 +50,42 @@ jobs:
             python3 "$f" pico-launcher
           done
 
+      - name: Export patched source
+        run: |
+          mkdir -p source/DSPico_Console_v3_6_SOURCE
+          cp -a pico-launcher source/DSPico_Console_v3_6_SOURCE/pico-launcher
+          rm -rf source/DSPico_Console_v3_6_SOURCE/pico-launcher/.git
+          find source/DSPico_Console_v3_6_SOURCE/pico-launcher -name .git -type d -prune -exec rm -rf {} + 2>/dev/null || true
+          find source/DSPico_Console_v3_6_SOURCE/pico-launcher -name .git -type f -delete 2>/dev/null || true
+          cp -a patchrepo/dspico_console_v3 source/DSPico_Console_v3_6_SOURCE/patches
+          cp patchrepo/.github/workflows/dspico-console-v3-build.yml source/DSPico_Console_v3_6_SOURCE/BUILD_WORKFLOW.yml
+          cat > source/DSPico_Console_v3_6_SOURCE/README_SOURCE.md <<'EOF'
+          # DSpico Console v3.6 source
+
+          This archive contains the complete patched C/C++ source tree used to build `_picoboot.nds`.
+
+          Base project: `rasalopa/pico-launcher-enhanced`, branch `enhanced`.
+          The `pico-launcher/` directory is already patched to the DSpico Console v3.6 state.
+          `patches/` contains the reproducible DSpico patch scripts used by CI.
+          `BUILD_WORKFLOW.yml` is the exact GitHub Actions/BlocksDS build recipe.
+
+          Build with BlocksDS:
+
+          ```sh
+          cd pico-launcher
+          make -j2
+          ```
+
+          Output: `pico-launcher/LAUNCHER.nds`.
+          EOF
+
+      - name: Upload source
+        uses: actions/upload-artifact@v4
+        with:
+          name: DSPico_Console_v3_6_SOURCE
+          path: source/DSPico_Console_v3_6_SOURCE/
+          if-no-files-found: error
+
       - name: Build launcher
         working-directory: pico-launcher
         run: make -j2
