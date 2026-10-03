@@ -1,0 +1,112 @@
+name: Metroid Fusion 3DS test build
+
+on:
+  push:
+    branches:
+      - chatgpt/metroid-fusion-3ds-build
+  workflow_dispatch:
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    container:
+      image: devkitpro/devkitarm:latest
+
+    steps:
+      - name: Checkout build helper
+        uses: actions/checkout@v4
+
+      - name: Install 3DS development packages
+        shell: bash
+        run: |
+          set -euxo pipefail
+          if command -v dkp-pacman >/dev/null 2>&1; then
+            dkp-pacman -Syu --noconfirm --needed 3ds-dev || true
+          elif command -v pacman >/dev/null 2>&1; then
+            pacman -Syu --noconfirm --needed 3ds-dev || true
+          fi
+          command -v arm-none-eabi-gcc
+          command -v cmake
+          test -f "$DEVKITPRO/libctru/include/3ds.h"
+
+      - name: Fetch and patch mGBA 3DS frontend
+        shell: bash
+        run: |
+          set -euxo pipefail
+          rm -rf /tmp/mgba
+          git clone --depth 1 https://github.com/mgba-emu/mgba.git /tmp/mgba
+          python3 "$GITHUB_WORKSPACE/tools/metroidfusion3ds_patch.py" /tmp/mgba
+
+      - name: Configure mGBA for Nintendo 3DS
+        shell: bash
+        run: |
+          set -euxo pipefail
+          cmake -S /tmp/mgba -B /tmp/mgba/build \
+            -DCMAKE_TOOLCHAIN_FILE=/tmp/mgba/src/platform/3ds/CMakeToolchain.txt \
+            -DCMAKE_BUILD_TYPE=Release \
+            -DBINARY_NAME=MetroidFusion3DS \
+            -DM_CORE_GBA=ON \
+            -DM_CORE_GB=OFF \
+            -DBUILD_QT=OFF \
+            -DBUILD_SDL=OFF \
+            -DBUILD_SHARED=OFF \
+            -DBUILD_STATIC=ON \
+            -DENABLE_DEBUGGERS=OFF \
+            -DENABLE_GDB_STUB=OFF \
+            -DENABLE_SCRIPTING=OFF \
+            -DUSE_FFMPEG=OFF \
+            -DUSE_LUA=OFF \
+            -DUSE_SQLITE3=OFF \
+            -DUSE_DISCORD_RPC=OFF \
+            -DUSE_FREETYPE=OFF \
+            -DUSE_LIBZIP=OFF \
+            -DUSE_LZMA=OFF \
+            -DUSE_JSON_C=OFF \
+            -DUSE_ELF=OFF
+
+      - name: Build 3DS ELF
+        shell: bash
+        run: |
+          set -euxo pipefail
+          cmake --build /tmp/mgba/build --target MetroidFusion3DS.elf -j2
+          find /tmp/mgba/build -name 'MetroidFusion3DS.elf' -o -name 'cia.rsf' -print
+
+      - name: Build makerom if needed
+        shell: bash
+        run: |
+          set -euxo pipefail
+          if command -v makerom >/dev/null 2>&1; then
+            echo "makerom already available: $(command -v makerom)"
+            exit 0
+          fi
+          rm -rf /tmp/Project_CTR
+          git clone --depth 1 https://github.com/3DSGuy/Project_CTR.git /tmp/Project_CTR
+          cd /tmp/Project_CTR/makerom
+          make deps -j2
+          make -j2
+          install -m 755 bin/makerom /usr/local/bin/makerom
+          makerom -h >/dev/null || true
+
+      - name: Package CCI / .3ds
+        shell: bash
+        run: |
+          set -euxo pipefail
+          mkdir -p "$GITHUB_WORKSPACE/out"
+          ELF="$(find /tmp/mgba/build -name 'MetroidFusion3DS.elf' -print -quit)"
+          RSF="$(find /tmp/mgba/build -name 'cia.rsf' -print -quit)"
+          test -n "$ELF"
+          test -n "$RSF"
+          makerom -f cci \
+            -o "$GITHUB_WORKSPACE/out/MetroidFusion3DS_Test.3ds" \
+            -rsf "$RSF" \
+            -target t \
+            -elf "$ELF"
+          cp "$ELF" "$GITHUB_WORKSPACE/out/MetroidFusion3DS_Test.elf"
+          ls -lh "$GITHUB_WORKSPACE/out"
+
+      - name: Upload test build
+        uses: actions/upload-artifact@v4
+        with:
+          name: MetroidFusion3DS-Test
+          path: out/*
+          if-no-files-found: error
