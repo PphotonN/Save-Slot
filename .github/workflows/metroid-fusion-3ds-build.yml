@@ -105,6 +105,8 @@ jobs:
             -target t \
             -elf "$ELF"
           cp "$ELF" "$GITHUB_WORKSPACE/out/MetroidFusion3DS.elf"
+          cp "$RSF" "$GITHUB_WORKSPACE/out/MetroidFusion3DS.rsf"
+          cp "$(command -v makerom)" "$GITHUB_WORKSPACE/out/makerom-linux-x86_64"
 
       - name: Package exact patched source
         shell: bash
