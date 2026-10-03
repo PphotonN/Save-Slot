@@ -37,6 +37,7 @@ jobs:
           set -euxo pipefail
           rm -rf /tmp/mgba
           git clone --depth 1 https://github.com/mgba-emu/mgba.git /tmp/mgba
+          git -C /tmp/mgba rev-parse HEAD > "$GITHUB_WORKSPACE/mgba-upstream-commit.txt"
           python3 "$GITHUB_WORKSPACE/tools/metroidfusion3ds_patch.py" /tmp/mgba
 
       - name: Configure mGBA for Nintendo 3DS
@@ -99,16 +100,27 @@ jobs:
           test -n "$ELF"
           test -n "$RSF"
           makerom -f cci \
-            -o "$GITHUB_WORKSPACE/out/MetroidFusion3DS_Test.3ds" \
+            -o "$GITHUB_WORKSPACE/out/MetroidFusion3DS_Base.3ds" \
             -rsf "$RSF" \
             -target t \
             -elf "$ELF"
-          cp "$ELF" "$GITHUB_WORKSPACE/out/MetroidFusion3DS_Test.elf"
+          cp "$ELF" "$GITHUB_WORKSPACE/out/MetroidFusion3DS.elf"
+
+      - name: Package exact patched source
+        shell: bash
+        run: |
+          set -euxo pipefail
+          rm -rf /tmp/mgba/build /tmp/mgba/.git
+          mkdir -p /tmp/mgba/port-build-files
+          cp "$GITHUB_WORKSPACE/tools/metroidfusion3ds_patch.py" /tmp/mgba/port-build-files/
+          cp "$GITHUB_WORKSPACE/.github/workflows/metroid-fusion-3ds-build.yml" /tmp/mgba/port-build-files/
+          cp "$GITHUB_WORKSPACE/mgba-upstream-commit.txt" /tmp/mgba/port-build-files/
+          tar -C /tmp -czf "$GITHUB_WORKSPACE/out/MetroidFusion3DS_Source_v0.2.tar.gz" mgba
           ls -lh "$GITHUB_WORKSPACE/out"
 
       - name: Upload test build
         uses: actions/upload-artifact@v4
         with:
-          name: MetroidFusion3DS-Test
+          name: MetroidFusion3DS-v0.2
           path: out/*
           if-no-files-found: error
