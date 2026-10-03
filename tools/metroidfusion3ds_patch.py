@@ -139,7 +139,8 @@ if old_draw_tail not in text:
     raise SystemExit("drawFrame tail not found")
 text = text.replace(old_draw_tail, new_draw_tail, 1)
 
-# Specialize this build: always boot the user's legally supplied ROM from the emulator/SD card.
+# The packaged v0.2 image boots from RomFS via mGUIGetRom()/romfs:/filename.
+# This fixed SD path is only a fallback for developer/unpacked builds.
 old_path = r'''	if (argc > 1) {
 		strncpy(initialPath, argv[1], sizeof(PATH_MAX));
 	} else {
@@ -149,14 +150,15 @@ old_path = r'''	if (argc > 1) {
 	}
 '''
 new_path = r'''	if (argc > 1) {
-		strncpy(initialPath, argv[1], sizeof(initialPath));
+		strncpy(initialPath, argv[1], sizeof(PATH_MAX));
 	} else {
 		u8 hmac[0x20];
 		memset(hmac, 0, sizeof(hmac));
 		APT_ReceiveDeliverArg(initialPath, sizeof(initialPath), hmac, NULL, NULL);
 	}
 
-	/* Fixed external ROM path: the ROM is deliberately NOT embedded in the 3DS image. */
+	/* Developer fallback. In the packaged image mGUIGetRom() later replaces
+	 * this with romfs:/MetroidFusionUA.gba from the embedded RomFS. */
 	strncpy(initialPath, "/3ds/MetroidFusion3DS/MetroidFusionUA.gba", sizeof(initialPath) - 1);
 	initialPath[sizeof(initialPath) - 1] = '\0';
 '''
