@@ -139,32 +139,24 @@ if old_draw_tail not in text:
     raise SystemExit("drawFrame tail not found")
 text = text.replace(old_draw_tail, new_draw_tail, 1)
 
-# The packaged v0.2 image boots from RomFS via mGUIGetRom()/romfs:/filename.
-# This fixed SD path is only a fallback for developer/unpacked builds.
-old_path = r'''	if (argc > 1) {
-		strncpy(initialPath, argv[1], sizeof(PATH_MAX));
-	} else {
-		u8 hmac[0x20];
-		memset(hmac, 0, sizeof(hmac));
-		APT_ReceiveDeliverArg(initialPath, sizeof(initialPath), hmac, NULL, NULL);
-	}
+# mGUIGetRom() writes "romfs:/" plus the filename into initialPath, but does
+# not append NUL unless the filename file ends with a newline. The stock 3DS
+# main starts with a zeroed buffer; keep that guarantee even if launch args
+# populated it before RomFS is mounted.
+old_romfs = r'''	Result res = romfsInit();
+	bool useRomfs = false;
+	if (R_SUCCEEDED(res)) {
+		useRomfs = mGUIGetRom(&runner, initialPath, sizeof(initialPath));
 '''
-new_path = r'''	if (argc > 1) {
-		strncpy(initialPath, argv[1], sizeof(PATH_MAX));
-	} else {
-		u8 hmac[0x20];
-		memset(hmac, 0, sizeof(hmac));
-		APT_ReceiveDeliverArg(initialPath, sizeof(initialPath), hmac, NULL, NULL);
-	}
-
-	/* Developer fallback. In the packaged image mGUIGetRom() later replaces
-	 * this with romfs:/MetroidFusionUA.gba from the embedded RomFS. */
-	strncpy(initialPath, "/3ds/MetroidFusion3DS/MetroidFusionUA.gba", sizeof(initialPath) - 1);
-	initialPath[sizeof(initialPath) - 1] = '\0';
+new_romfs = r'''	Result res = romfsInit();
+	bool useRomfs = false;
+	if (R_SUCCEEDED(res)) {
+		memset(initialPath, 0, sizeof(initialPath));
+		useRomfs = mGUIGetRom(&runner, initialPath, sizeof(initialPath));
 '''
-if old_path not in text:
-    raise SystemExit("initialPath block not found")
-text = text.replace(old_path, new_path, 1)
+if old_romfs not in text:
+    raise SystemExit("romfs boot block not found")
+text = text.replace(old_romfs, new_romfs, 1)
 
 # Disable screen-mode cycling while the game is running; the two-screen layout is fixed.
 old_key = r'''	_map3DSKey(&runner.params.keyMap, KEY_Y, mGUI_INPUT_SCREEN_MODE);
