@@ -11,6 +11,8 @@ jobs:
     runs-on: ubuntu-latest
     container:
       image: devkitpro/devkitarm:latest
+    env:
+      PATH: /opt/devkitpro/devkitARM/bin:/opt/devkitpro/tools/bin:/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin
 
     steps:
       - name: Checkout build helper
@@ -69,7 +71,7 @@ jobs:
         run: |
           set -euxo pipefail
           cmake --build /tmp/mgba/build --target MetroidFusion3DS.elf -j2
-          find /tmp/mgba/build -name 'MetroidFusion3DS.elf' -o -name 'cia.rsf' -print
+          find /tmp/mgba/build \( -name 'MetroidFusion3DS.elf' -o -name 'cia.rsf' \) -print
 
       - name: Build makerom if needed
         shell: bash
