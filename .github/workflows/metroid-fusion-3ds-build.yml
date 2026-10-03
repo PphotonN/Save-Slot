@@ -88,7 +88,21 @@ jobs:
           make deps -j2
           make -j2
           install -m 755 bin/makerom /usr/local/bin/makerom
-          makerom -h >/dev/null || true
+
+      - name: Fetch 3dstool used by current mGBA forwarder generator
+        shell: bash
+        run: |
+          set -euxo pipefail
+          rm -rf /tmp/3dstool-dist /tmp/3dstool.tar.gz
+          mkdir -p /tmp/3dstool-dist
+          curl -L --fail --retry 3 \
+            -o /tmp/3dstool.tar.gz \
+            https://github.com/dnasdw/3dstool/releases/download/v1.2.6/3dstool_linux_x86_64.tar.gz
+          tar -xzf /tmp/3dstool.tar.gz -C /tmp/3dstool-dist
+          TOOL="$(find /tmp/3dstool-dist -type f -name 3dstool -print -quit)"
+          test -n "$TOOL"
+          chmod +x "$TOOL"
+          install -m 755 "$TOOL" /usr/local/bin/3dstool
 
       - name: Package CCI / .3ds
         shell: bash
@@ -107,6 +121,7 @@ jobs:
           cp "$ELF" "$GITHUB_WORKSPACE/out/MetroidFusion3DS.elf"
           cp "$RSF" "$GITHUB_WORKSPACE/out/MetroidFusion3DS.rsf"
           cp "$(command -v makerom)" "$GITHUB_WORKSPACE/out/makerom-linux-x86_64"
+          cp "$(command -v 3dstool)" "$GITHUB_WORKSPACE/out/3dstool-linux-x86_64"
 
       - name: Package exact patched source
         shell: bash
@@ -117,12 +132,12 @@ jobs:
           cp "$GITHUB_WORKSPACE/tools/metroidfusion3ds_patch.py" /tmp/mgba/port-build-files/
           cp "$GITHUB_WORKSPACE/.github/workflows/metroid-fusion-3ds-build.yml" /tmp/mgba/port-build-files/
           cp "$GITHUB_WORKSPACE/mgba-upstream-commit.txt" /tmp/mgba/port-build-files/
-          tar -C /tmp -czf "$GITHUB_WORKSPACE/out/MetroidFusion3DS_Source_v0.2.tar.gz" mgba
+          tar -C /tmp -czf "$GITHUB_WORKSPACE/out/MetroidFusion3DS_Source_v0.3.tar.gz" mgba
           ls -lh "$GITHUB_WORKSPACE/out"
 
       - name: Upload test build
         uses: actions/upload-artifact@v4
         with:
-          name: MetroidFusion3DS-v0.2
+          name: MetroidFusion3DS-v0.3-tools
           path: out/*
           if-no-files-found: error
