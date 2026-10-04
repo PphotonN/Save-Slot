@@ -6,7 +6,7 @@ root = Path(sys.argv[1])
 main = root / "src/platform/3ds/main.c"
 text = main.read_text(encoding="utf-8")
 
-old_init = r'''\tmfPauseCore = mCoreCreate(mPLATFORM_GBA);
+old_init = '''\tmfPauseCore = mCoreCreate(mPLATFORM_GBA);
 \tif (!mfPauseCore || !mfPauseCore->init(mfPauseCore)) {
 \t\t_mfDestroyPauseCore();
 \t\treturn false;
@@ -15,7 +15,7 @@ old_init = r'''\tmfPauseCore = mCoreCreate(mPLATFORM_GBA);
 \t/* The forwarder keeps RomFS mounted for the lifetime of the app. Load the
 \t * same embedded ROM into the helper core, but never attach save/audio I/O. */
 '''
-new_init = r'''\tmfPauseCore = mCoreCreate(mPLATFORM_GBA);
+new_init = '''\tmfPauseCore = mCoreCreate(mPLATFORM_GBA);
 \tif (!mfPauseCore || !mfPauseCore->init(mfPauseCore)) {
 \t\t_mfDestroyPauseCore();
 \t\treturn false;
@@ -35,12 +35,12 @@ if old_init not in text:
     raise SystemExit("v0.7 pause-core init block not found")
 text = text.replace(old_init, new_init, 1)
 
-old_video = r'''\tmemset(mfPauseFrameBuffer, 0, 256 * 224 * sizeof(mColor));
+old_video = '''\tmemset(mfPauseFrameBuffer, 0, 256 * 224 * sizeof(mColor));
 \tmfPauseCore->setVideoBuffer(mfPauseCore, mfPauseFrameBuffer, 256);
 
 \tmfPauseStateSize = runner->core->stateSize(runner->core);
 '''
-new_video = r'''\tmemset(mfPauseFrameBuffer, 0, 256 * 224 * sizeof(mColor));
+new_video = '''\tmemset(mfPauseFrameBuffer, 0, 256 * 224 * sizeof(mColor));
 \tmfPauseCore->setVideoBuffer(mfPauseCore, mfPauseFrameBuffer, 256);
 
 \t/* Critical v0.8 fix: initialize the GBA timing/video/audio/IO event graph
