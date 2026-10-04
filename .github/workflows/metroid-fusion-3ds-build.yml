@@ -40,6 +40,7 @@ jobs:
           git -C /tmp/mgba rev-parse HEAD > "$GITHUB_WORKSPACE/mgba-upstream-commit.txt"
           python3 "$GITHUB_WORKSPACE/tools/metroidfusion3ds_patch.py" /tmp/mgba
           python3 "$GITHUB_WORKSPACE/tools/metroidfusion3ds_v05.py" /tmp/mgba
+          python3 "$GITHUB_WORKSPACE/tools/metroidfusion3ds_v06.py" /tmp/mgba
 
       - name: Configure mGBA for Nintendo 3DS
         shell: bash
@@ -132,14 +133,15 @@ jobs:
           mkdir -p /tmp/mgba/port-build-files
           cp "$GITHUB_WORKSPACE/tools/metroidfusion3ds_patch.py" /tmp/mgba/port-build-files/
           cp "$GITHUB_WORKSPACE/tools/metroidfusion3ds_v05.py" /tmp/mgba/port-build-files/
+          cp "$GITHUB_WORKSPACE/tools/metroidfusion3ds_v06.py" /tmp/mgba/port-build-files/
           cp "$GITHUB_WORKSPACE/.github/workflows/metroid-fusion-3ds-build.yml" /tmp/mgba/port-build-files/
           cp "$GITHUB_WORKSPACE/mgba-upstream-commit.txt" /tmp/mgba/port-build-files/
-          tar -C /tmp -czf "$GITHUB_WORKSPACE/out/MetroidFusion3DS_Source_v0.5.tar.gz" mgba
+          tar -C /tmp -czf "$GITHUB_WORKSPACE/out/MetroidFusion3DS_Source_v0.6.tar.gz" mgba
           ls -lh "$GITHUB_WORKSPACE/out"
 
       - name: Upload test build
         uses: actions/upload-artifact@v4
         with:
-          name: MetroidFusion3DS-v0.5-tools
+          name: MetroidFusion3DS-v0.6-tools
           path: out/*
           if-no-files-found: error
